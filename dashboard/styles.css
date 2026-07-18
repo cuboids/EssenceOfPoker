@@ -159,6 +159,10 @@ dd {
   margin-top: 8px;
 }
 
+.view-controls > .theme-toggle {
+  margin-left: auto;
+}
+
 .control-button {
   border: 1px solid var(--button-border);
   border-radius: 6px;
@@ -357,6 +361,32 @@ dd {
 .view-mode-control label:focus-within span {
   outline: 2px solid rgba(20, 107, 95, 0.28);
   outline-offset: 2px;
+}
+
+.settings-page-button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.settings-page-button:hover,
+.settings-page-button:focus-visible {
+  border-color: var(--button-border);
+  color: var(--ink);
+  outline: none;
+}
+
+.settings-page-button.is-active {
+  border-color: var(--button-border);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .toggle-control input {
@@ -1027,6 +1057,10 @@ p sub,
   .view-controls {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .view-controls > .theme-toggle {
+    margin-left: 0;
   }
 
   .holding-display {

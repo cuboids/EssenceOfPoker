@@ -12,6 +12,10 @@ import {
 } from "../dashboard/cards.mjs";
 import { categoryOrder, smallChart } from "../dashboard/app_config.mjs";
 import { concreteAssetIsActive } from "../dashboard/asset_status.mjs";
+import {
+  handAggregateEquityIsEstimated,
+  handAggregateEquityVsVillain,
+} from "../dashboard/aggregate_equity.mjs";
 import { chartDomain, normalCdf, normalPdf, normalQuantileClamped } from "../dashboard/charts.mjs";
 import { readApiCache } from "../dashboard/cache_client.mjs";
 import { createComputationWorker } from "../dashboard/computation_worker_client.mjs";
@@ -178,6 +182,21 @@ test("preflop hand equity cache covers canonical classes and makes KTo above 50%
   assert.ok(preflopHandEquityCache.classes["1-1-pair"] > 0.84);
   assert.ok(preflopHandEquityCache.classes["2-5-offsuit"] > 0.57);
   assert.ok(preflopHandEquityCache.classes["2-5-offsuit"] < 0.63);
+});
+
+test("hand aggregate equity updates from prior to dealt holding class", () => {
+  assert.equal(handAggregateEquityVsVillain({ handState: null, equityCache: preflopHandEquityCache, priorShare: 0.5 }), 0.5);
+
+  const ktoState = {
+    h1: card(2, 1),
+    h2: card(5, 2),
+  };
+
+  assert.equal(
+    handAggregateEquityVsVillain({ handState: ktoState, equityCache: preflopHandEquityCache, priorShare: 0.5 }),
+    preflopHandEquityCache.classes["2-5-offsuit"],
+  );
+  assert.ok(handAggregateEquityIsEstimated({ handState: ktoState, equityCache: preflopHandEquityCache }));
 });
 
 test("ui helpers format card and numeric display without the DOM", () => {

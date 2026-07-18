@@ -15,6 +15,10 @@ import {
   isLockedCurve,
 } from "./asset_status.mjs";
 import {
+  handAggregateEquityIsEstimated,
+  handAggregateEquityVsVillain,
+} from "./aggregate_equity.mjs";
+import {
   cardCompare,
   cardId,
   fullDeck,
@@ -1654,8 +1658,11 @@ function aggregateMatchupShare(asset) {
     return currentWinShares.hero?.aggregateShares?.RANGE_AGG ?? 0.5;
   }
   if (isHandAggregateMatchup(asset) && handState?.h1 && handState?.h2) {
-    const classKey = preflopClassKeyForCards(handState.h1, handState.h2);
-    return preflopHandEquityCache?.classes?.[classKey] ?? priorAggregateMatchupShare(asset);
+    return handAggregateEquityVsVillain({
+      handState,
+      equityCache: preflopHandEquityCache,
+      priorShare: priorAggregateMatchupShare(asset),
+    });
   }
   const page = asset.sourcePage || activePage;
   return currentWinShares[page]?.aggregateShares?.[asset.sourceCode || asset.code] ?? priorAggregateMatchupShare(asset);
@@ -1677,7 +1684,7 @@ function aggregateMatchupTitle(asset, share) {
     return `Range equity vs villain range ${formatPercent(share)}`;
   }
   if (isHandAggregateMatchup(asset)) {
-    const prefix = preflopHandEquityCache?.exact === false && handState?.h1 && handState?.h2 ? "Estimated equity" : "Equity";
+    const prefix = handAggregateEquityIsEstimated({ handState, equityCache: preflopHandEquityCache }) ? "Estimated equity" : "Equity";
     return `${prefix} vs villain ${formatPercent(share)}`;
   }
   return "";

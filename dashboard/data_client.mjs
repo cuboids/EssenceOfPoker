@@ -1,59 +1,56 @@
 export async function readPreflopHiddenVillainClass(classKey) {
-  try {
-    const response = await fetch(`api/data/preflop-hidden-villain/${encodeURIComponent(classKey)}`, { cache: "force-cache" });
-    if (!response.ok) {
-      return null;
-    }
-    return await response.json();
-  } catch {
-    return null;
-  }
+  const result = await readPreflopHiddenVillainClassResult(classKey);
+  return result.ok ? result.value : null;
+}
+
+export function readPreflopHiddenVillainClassResult(classKey) {
+  return readJsonResult(`api/data/preflop-hidden-villain/${encodeURIComponent(classKey)}`, { cache: "force-cache" });
 }
 
 export async function readPreflopAggregateClass(classKey) {
-  try {
-    const response = await fetch(`api/data/preflop-aggregate/${encodeURIComponent(classKey)}`, { cache: "force-cache" });
-    if (!response.ok) {
-      return null;
-    }
-    return await response.json();
-  } catch {
-    return null;
-  }
+  const result = await readPreflopAggregateClassResult(classKey);
+  return result.ok ? result.value : null;
+}
+
+export function readPreflopAggregateClassResult(classKey) {
+  return readJsonResult(`api/data/preflop-aggregate/${encodeURIComponent(classKey)}`, { cache: "force-cache" });
 }
 
 export async function readPreflopPrimaryClass(classKey) {
-  try {
-    const response = await fetch(`api/data/preflop-primary/${encodeURIComponent(classKey)}`, { cache: "force-cache" });
-    if (!response.ok) {
-      return null;
-    }
-    return await response.json();
-  } catch {
-    return null;
-  }
+  const result = await readPreflopPrimaryClassResult(classKey);
+  return result.ok ? result.value : null;
+}
+
+export function readPreflopPrimaryClassResult(classKey) {
+  return readJsonResult(`api/data/preflop-primary/${encodeURIComponent(classKey)}`, { cache: "force-cache" });
 }
 
 export async function readEmpiricalSpot(request) {
-  try {
-    const params = new URLSearchParams({
-      street: request.street,
-      position: request.position,
-      playerCount: String(request.playerCount),
-      stakeBucket: request.stakeBucket || "micro",
-      yearBucket: request.yearBucket || "2009-2010",
-      facingAggression: request.facingAggression ? "1" : "0",
-      amountBucket: request.amountBucket || "none",
-    });
-    const response = await fetch(`api/calibration/empirical-spot?${params}`, { cache: "force-cache" });
-    if (!response.ok) {
-      return null;
-    }
-    const payload = await response.json();
-    return payload?.ok ? payload : null;
-  } catch {
-    return null;
+  const result = await readEmpiricalSpotResult(request);
+  return result.ok && result.value?.ok ? result.value : null;
+}
+
+export async function readEmpiricalSpotResult(request) {
+  const params = new URLSearchParams({
+    street: request.street,
+    position: request.position,
+    playerCount: String(request.playerCount),
+    stakeBucket: request.stakeBucket || "micro",
+    yearBucket: request.yearBucket || "2009-2010",
+    facingAggression: request.facingAggression ? "1" : "0",
+    amountBucket: request.amountBucket || "none",
+  });
+  const result = await readJsonResult(`api/calibration/empirical-spot?${params}`, { cache: "force-cache" });
+  if (!result.ok || result.value?.ok) {
+    return result;
   }
+  return {
+    ok: false,
+    status: result.status,
+    reason: "payload",
+    error: result.value?.error || "Empirical spot payload is unavailable.",
+    value: result.value,
+  };
 }
 
 export async function readHealth() {
@@ -99,5 +96,30 @@ async function responseErrorMessage(response, fallback) {
     return payload?.error || fallback;
   } catch {
     return fallback;
+  }
+}
+
+async function readJsonResult(url, options = {}) {
+  try {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        reason: response.status === 404 ? "miss" : "http",
+        error: await responseErrorMessage(response, response.statusText || `HTTP ${response.status}`),
+      };
+    }
+    return {
+      ok: true,
+      status: response.status,
+      value: await response.json(),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "network",
+      error: error?.message || "Dashboard data request failed.",
+    };
   }
 }

@@ -30,6 +30,15 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if self.path == "/api/health":
             self._json_response(health_payload(self.cache, self.dashboard_root))
             return
+        if self.path.startswith("/api/data/preflop-hidden-villain/"):
+            self._handle_preflop_hidden_villain_data()
+            return
+        if self.path.startswith("/api/data/preflop-aggregate/"):
+            self._handle_preflop_aggregate_data()
+            return
+        if self.path.startswith("/api/data/preflop-primary/"):
+            self._handle_preflop_primary_data()
+            return
         if self.path.startswith("/api/cache/"):
             self._handle_cache_get()
             return
@@ -83,6 +92,40 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         digest = hashlib.sha256(payload).hexdigest()[:16]
         self._json_response({"ok": True, "cache": self.cache.name, "sha256": digest})
 
+    def _handle_preflop_hidden_villain_data(self) -> None:
+        class_key = unquote(self.path.removeprefix("/api/data/preflop-hidden-villain/"))
+        data_path = PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_hidden_villain_classes" / f"{class_key}.json.gz"
+        self._serve_gzipped_class_payload(class_key, data_path)
+
+    def _handle_preflop_aggregate_data(self) -> None:
+        class_key = unquote(self.path.removeprefix("/api/data/preflop-aggregate/"))
+        data_path = PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_aggregate_classes" / f"{class_key}.json.gz"
+        self._serve_gzipped_class_payload(class_key, data_path)
+
+    def _handle_preflop_primary_data(self) -> None:
+        class_key = unquote(self.path.removeprefix("/api/data/preflop-primary/"))
+        data_path = PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_primary_classes" / f"{class_key}.json.gz"
+        self._serve_gzipped_class_payload(class_key, data_path)
+
+    def _serve_gzipped_class_payload(self, class_key: str, data_path: Path) -> None:
+        if not valid_preflop_class_key(class_key):
+            self.send_error(HTTPStatus.BAD_REQUEST, "invalid preflop class key")
+            return
+
+        if not data_path.exists():
+            self._json_response({"hit": False}, status=HTTPStatus.NOT_FOUND)
+            return
+
+        payload = data_path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self._cors_headers()
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Encoding", "gzip")
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def _cache_key(self) -> str:
         suffix = self.path.removeprefix("/api/cache/")
         return f"eop:{unquote(suffix)}"
@@ -121,6 +164,34 @@ def health_payload(cache: CacheBackend, dashboard_root: Path) -> dict:
         "cache": cache.status(),
         "dashboardRoot": str(dashboard_root),
         "build": load_build_info(dashboard_root),
+        "data": data_health_payload(),
+    }
+
+
+def data_health_payload() -> dict:
+    return {
+        "preflopAggregateClasses": class_data_status(
+            PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_aggregate_manifest.json",
+            PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_aggregate_classes",
+        ),
+        "preflopHiddenVillainClasses": class_data_status(
+            PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_hidden_villain_manifest.json",
+            PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_hidden_villain_classes",
+        ),
+        "preflopPrimaryClasses": class_data_status(
+            PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_primary_manifest.json",
+            PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_primary_classes",
+        ),
+    }
+
+
+def class_data_status(manifest_path: Path, classes_dir: Path) -> dict:
+    class_count = len(list(classes_dir.glob("*.json.gz"))) if classes_dir.exists() else 0
+    return {
+        "ok": manifest_path.exists() and class_count == 169,
+        "manifest": str(manifest_path),
+        "classesDir": str(classes_dir),
+        "classCount": class_count,
     }
 
 
@@ -128,6 +199,22 @@ def static_cache_control(request_path: str) -> str:
     if "?v=" in request_path:
         return "public, max-age=31536000, immutable"
     return "no-cache"
+
+
+def valid_preflop_class_key(class_key: str) -> bool:
+    parts = class_key.split("-")
+    if len(parts) != 3 or parts[2] not in {"pair", "suited", "offsuit"}:
+        return False
+    try:
+        first = int(parts[0])
+        second = int(parts[1])
+    except ValueError:
+        return False
+    if not (1 <= first <= 13 and 1 <= second <= 13 and first <= second):
+        return False
+    if parts[2] == "pair":
+        return first == second
+    return first < second
 
 
 def run(host: str, port: int, dashboard_root: Path | None = None) -> None:

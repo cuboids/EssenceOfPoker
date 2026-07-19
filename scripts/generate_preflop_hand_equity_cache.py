@@ -1,4 +1,4 @@
-"""Generate preflop Hero Aggregate equity versus A2C villain range."""
+"""Generate preflop Hero Aggregate equity versus any-two-card villain range."""
 
 from __future__ import annotations
 

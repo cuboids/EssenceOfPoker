@@ -5,7 +5,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from essence_of_poker.cache import MemoryCache
-from essence_of_poker.server import dashboard_root_from_environment, health_payload, static_cache_control
+from essence_of_poker.server import (
+    class_data_status,
+    dashboard_root_from_environment,
+    health_payload,
+    static_cache_control,
+    valid_preflop_class_key,
+)
 
 
 class ServerTests(unittest.TestCase):
@@ -32,11 +38,39 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(payload["cache"]["fallbackReason"], "ConnectionError")
             self.assertEqual(payload["build"]["version"], "abc123")
             self.assertEqual(payload["dashboardRoot"], str(dashboard_root))
+            self.assertIn("preflopAggregateClasses", payload["data"])
+            self.assertIn("preflopHiddenVillainClasses", payload["data"])
+            self.assertIn("preflopPrimaryClasses", payload["data"])
+
+    def test_class_data_status_reports_manifest_and_class_count(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest = root / "manifest.json"
+            classes = root / "classes"
+            classes.mkdir()
+            manifest.write_text("{}", encoding="utf-8")
+
+            self.assertFalse(class_data_status(manifest, classes)["ok"])
+            for index in range(169):
+                (classes / f"{index}.json.gz").write_bytes(b"")
+
+            status = class_data_status(manifest, classes)
+            self.assertTrue(status["ok"])
+            self.assertEqual(status["classCount"], 169)
 
     def test_static_cache_policy_distinguishes_versioned_assets(self) -> None:
         self.assertEqual(static_cache_control("/app.js?v=abc123"), "public, max-age=31536000, immutable")
         self.assertEqual(static_cache_control("/"), "no-cache")
         self.assertEqual(static_cache_control("/index.html"), "no-cache")
+
+    def test_preflop_class_key_validation_rejects_path_tricks(self) -> None:
+        self.assertTrue(valid_preflop_class_key("1-1-pair"))
+        self.assertTrue(valid_preflop_class_key("2-5-offsuit"))
+        self.assertTrue(valid_preflop_class_key("2-5-suited"))
+        self.assertFalse(valid_preflop_class_key("../1-1-pair"))
+        self.assertFalse(valid_preflop_class_key("2-2-suited"))
+        self.assertFalse(valid_preflop_class_key("5-2-offsuit"))
+        self.assertFalse(valid_preflop_class_key("14-14-pair"))
 
 
 if __name__ == "__main__":

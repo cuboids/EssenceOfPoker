@@ -176,6 +176,10 @@ The dashboard groups assets into the four portfolio categories, colors the nine
 classic hand categories, and tracks whether each asset is active. Before any
 cards are dealt, all assets are active.
 
+The Config page supports 2-player through 6-player tables. Hero is always shown
+as `Hero`; opponents are shown by occupied position. For example, a six-player
+table with Hero on `CO` shows opponent pages `LJ`, `HJ`, `BTN`, `SB`, and `BB`.
+
 Use `New round` to deal hero's two holding cards. Once a round is dealt, the
 button is disabled until `New hand` resets the dashboard to the pre-deal state.
 
@@ -193,6 +197,8 @@ Generate the dashboard data with:
 ```bash
 python3 -m pip install -r requirements.txt
 node scripts/generate_preflop_primary_prior_cache.mjs
+node scripts/split_preflop_aggregate_cache.mjs
+node scripts/split_preflop_hidden_villain_cache.mjs
 python3 -m essence_of_poker.dashboard_data
 ```
 
@@ -203,6 +209,15 @@ The raw `preflop_primary_prior_cache.json` file is ignored because it is large;
 the repository stores the compressed
 `essence_of_poker/data/preflop_primary_prior_cache.json.gz` artifact, which the
 builder reads directly on a clean checkout.
+
+The preflop hero aggregate cache and hidden-villain cache are backend-owned
+generated data. The dashboard fetches immutable per-class payloads through:
+
+- `/api/data/preflop-aggregate/<classKey>`
+- `/api/data/preflop-hidden-villain/<classKey>`
+
+This keeps the browser from downloading monolithic startup JSON for data that is
+only needed after a holding class is known.
 
 Then serve the dashboard through the cache-aware local server:
 
@@ -221,16 +236,43 @@ Prewarm exact hero preflop win-share caches for all 169 canonical starting-hand
 classes:
 
 ```bash
-node scripts/prewarm_preflop_winshares.mjs --api http://127.0.0.1:8765
+node scripts/prewarm_preflop_winshares_parallel.mjs --api http://127.0.0.1:8765 --workers 8
 ```
 
-For faster warmup on a multi-core machine, run shards in separate terminals:
+If you need manual control, the underlying shardable command is:
 
 ```bash
 node scripts/prewarm_preflop_winshares.mjs --api http://127.0.0.1:8765 --shard-count 4 --shard-index 0
 ```
 
 Use shard indexes `0`, `1`, `2`, and `3`.
+
+Prewarm preflop multiway aggregate-equity caches for every canonical holding
+class and every supported table size:
+
+```bash
+npm run prewarm:preflop-multiway -- --api http://127.0.0.1:8765 --players 2,3,4,5,6
+```
+
+These keys are intentionally canonical: preflop entries are keyed by the
+starting-hand class, active player count, simulation count, and dashboard asset
+version rather than by physical suits or seat labels.
+
+## Hand History And Range Inference
+
+PokerCraft/GG-style hand histories enter through a dedicated import boundary:
+
+- `dashboard/pokercraft_parser.mjs` parses source text.
+- `dashboard/hand_history_model.mjs` defines the canonical history shape.
+- `dashboard/import_normalizer.mjs` converts imported hands into app-level
+  table config, cards, board, and linear player actions.
+
+Range inference is intentionally separate from the front-page UI. The current
+preflop engine generates every legal two-card combo, scores combos with
+deterministic hand features, calibrates smooth action likelihoods to target
+frequencies, and updates weights through the action history. This keeps ranges
+as latent state: users provide cards/actions/imported history, and the engine
+derives hidden weighted ranges for later equity work.
 
 ## Production Build And Deployment Boundary
 
@@ -240,9 +282,13 @@ is:
 
 ```bash
 python3 -m pip install -r requirements.txt
+python3 -m pip install -e .
+npm install
 python3 -m essence_of_poker.dashboard_data
+node scripts/split_preflop_aggregate_cache.mjs
+node scripts/split_preflop_hidden_villain_cache.mjs
 python3 -m unittest
-node --test tests/*.test.mjs
+npm test
 node scripts/performance_budgets.mjs
 python3 -m essence_of_poker.build_dashboard --output dist/dashboard
 node scripts/browser_smoke.mjs --dashboard-root dist/dashboard
@@ -258,6 +304,18 @@ content hash for every asset, injects the dashboard asset version into
 The server treats versioned static assets (`?v=...`) as immutable for one year.
 The entry HTML and cache API are served with freshness-oriented/no-store
 policies so deploys and exact cache reads are not pinned by the browser.
+`/api/health` reports the active cache backend, build metadata, and whether the
+required 169 preflop aggregate and hidden-villain class artifacts are present.
+
+Redis cache keys include both a schema version and the built dashboard asset
+version. To prewarm for a specific production build, pass the same version that
+appears in `dist/dashboard/build_info.json`:
+
+```bash
+VERSION=$(python3 -c 'import json; print(json.load(open("dist/dashboard/build_info.json"))["version"])')
+node scripts/prewarm_preflop_winshares_parallel.mjs --api http://127.0.0.1:8765 --cache-version "$VERSION" --workers 8
+npm run prewarm:preflop-multiway -- --api http://127.0.0.1:8765 --cache-version "$VERSION" --players 2,3,4,5,6
+```
 
 Serve the production artifact with:
 
@@ -271,6 +329,7 @@ dashboard uses:
 
 ```bash
 node scripts/prewarm_preflop_winshares.mjs --api http://127.0.0.1:8765
+npm run prewarm:preflop-multiway -- --api http://127.0.0.1:8765
 ```
 
 For multi-core warmup, run the shard command shown above against the production

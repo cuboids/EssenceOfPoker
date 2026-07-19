@@ -4,10 +4,11 @@ import test from "node:test";
 
 import { createHandEvaluator } from "../dashboard/evaluation.mjs";
 import {
-  curvesFromPreflopHiddenA2CCache,
-  hiddenA2CVillainCurves,
-  preflopHiddenA2CCurves,
+  curvesFromPreflopHiddenVillainCache,
+  hiddenVillainCurves,
+  preflopHiddenVillainCurves,
   visitFutureBoard,
+  weightedRangeAssetCurves,
   weightedPreflopSingleVillainCardDistribution,
 } from "../dashboard/villain_range.mjs";
 
@@ -55,9 +56,9 @@ test("weighted preflop single-villain curves account for hidden companion card o
 });
 
 test("preflop hidden villain curves are grouped by visible villain-card usage", () => {
-  const assets = data.portfolios.a2cVillain.assets;
+  const assets = data.portfolios.villain.assets;
   const available = [card(1, 1), card(2, 1), card(3, 1), card(4, 1), card(5, 1), card(6, 1)];
-  const curves = preflopHiddenA2CCurves({
+  const curves = preflopHiddenVillainCurves({
     assets,
     available,
     bucketCount: data.bucketCount,
@@ -75,9 +76,9 @@ test("preflop hidden villain curves are grouped by visible villain-card usage", 
 });
 
 test("preflop hidden villain cache reconstruction avoids fake aggregate fallback curves", () => {
-  const assets = data.portfolios.a2cVillain.assets;
-  const aggregates = data.portfolios.a2cVillain.aggregates;
-  const curves = curvesFromPreflopHiddenA2CCache({
+  const assets = data.portfolios.villain.assets;
+  const aggregates = data.portfolios.villain.aggregates;
+  const curves = curvesFromPreflopHiddenVillainCache({
     assets,
     aggregates,
     cachedClass: {
@@ -101,8 +102,8 @@ test("preflop hidden villain cache reconstruction avoids fake aggregate fallback
 });
 
 test("hidden villain curves include aggregate minimums when the board is complete", () => {
-  const portfolio = data.portfolios.a2cVillain;
-  const curves = hiddenA2CVillainCurves({
+  const portfolio = data.portfolios.villain;
+  const curves = hiddenVillainCurves({
     assets: portfolio.assets,
     aggregates: portfolio.aggregates,
     available: [card(6, 1), card(7, 1), card(8, 2), card(9, 3)],
@@ -124,4 +125,57 @@ test("hidden villain curves include aggregate minimums when the board is complet
   assert.equal(curves.AGG.totalCombos, 6);
   assert.equal(curves.AGG.curve.at(-1).probability, 1);
   assert.ok(curves.AGG.bestGradation <= curves["1.1"].bestGradation);
+});
+
+test("weighted range curves evaluate the live weighted hole-card combos", () => {
+  const assets = [
+    { code: "BOTH", name: "V_1 + V_2 + F_1 + F_2 + F_3" },
+    { code: "ZERO", name: "F_1 + F_2 + F_3 + T + R" },
+  ];
+  const aggregates = [
+    { code: "AGG", assetCodes: ["BOTH", "ZERO"] },
+  ];
+  const knownBoardState = {
+    F_1: card(5, 1),
+    F_2: card(6, 1),
+    F_3: card(7, 1),
+    T: card(8, 2),
+    R: card(9, 3),
+  };
+  const liveCombo = { cards: [card(1, 1), card(1, 2)], weight: 1 };
+  const blockedCombo = { cards: [card(2, 1), card(2, 2)], weight: 0 };
+  const curves = weightedRangeAssetCurves({
+    assets,
+    aggregates,
+    range: { combos: [liveCombo, blockedCombo] },
+    available: [card(1, 1), card(1, 2), card(2, 1), card(2, 2)],
+    knownBoardState,
+    futureBoardTokens: [],
+    bucketCount: data.bucketCount,
+    priorXByGradation,
+    chooseTable: evaluator.chooseTable,
+    evaluateGradation: evaluator.evaluateGradation,
+    nsims: 25,
+    seed: 11,
+  });
+  const bothGradation = evaluator.evaluateGradation([
+    card(1, 1),
+    card(1, 2),
+    knownBoardState.F_1,
+    knownBoardState.F_2,
+    knownBoardState.F_3,
+  ]);
+  const zeroGradation = evaluator.evaluateGradation([
+    knownBoardState.F_1,
+    knownBoardState.F_2,
+    knownBoardState.F_3,
+    knownBoardState.T,
+    knownBoardState.R,
+  ]);
+
+  assert.equal(curves.BOTH.totalCombos, 25);
+  assert.equal(curves.BOTH.bestGradation, bothGradation);
+  assert.equal(curves.BOTH.worstGradation, bothGradation);
+  assert.equal(curves.ZERO.bestGradation, zeroGradation);
+  assert.equal(curves.AGG.bestGradation, Math.min(bothGradation, zeroGradation));
 });

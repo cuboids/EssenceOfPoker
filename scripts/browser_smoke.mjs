@@ -93,12 +93,14 @@ async function runBrowserSmoke(url) {
   }
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
+  const requestedUrls = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") {
       errors.push(message.text());
     }
   });
+  page.on("request", (request) => requestedUrls.push(request.url()));
 
   try {
     await page.goto(url, { waitUntil: "networkidle" });
@@ -107,13 +109,55 @@ async function runBrowserSmoke(url) {
     if (initialCards < 21) {
       throw new Error(`expected at least 21 asset cards, got ${initialCards}`);
     }
+    const assetCount = await page.locator("#asset-count").textContent();
+    if (assetCount?.trim() !== "21") {
+      throw new Error(`expected concrete asset count 21, got ${assetCount}`);
+    }
 
     await page.locator("#new-round-button").click();
     await page.waitForFunction(() => document.querySelector("#holding-display")?.textContent.includes("Holding"), null, { timeout: 10_000 });
     await page.waitForFunction(() => document.querySelectorAll(".known-card").length >= 2, null, { timeout: 10_000 });
+    await page.waitForFunction(() => [...document.querySelectorAll(".win-bars")].some((element) => /Win share|equity/i.test(element.getAttribute("title") || "")), null, { timeout: 10_000 });
+
+    if (requestedUrls.some((requestUrl) => requestUrl.includes("data/preflop_aggregate_cache.json"))) {
+      throw new Error("browser requested removed monolithic preflop aggregate cache");
+    }
+    if (!requestedUrls.some((requestUrl) => requestUrl.includes("/api/data/preflop-aggregate/"))) {
+      throw new Error("browser did not request typed preflop aggregate class data");
+    }
+    if (!requestedUrls.some((requestUrl) => requestUrl.includes("/api/data/preflop-hidden-villain/"))) {
+      throw new Error("browser did not request typed hidden-villain class data");
+    }
 
     await page.locator("#config-page-button").click();
     await page.waitForSelector(".config-panel", { timeout: 10_000 });
+    await page.locator('input[name="player-count"][value="6"]').click({ force: true });
+    await page.locator('input[name="hero-position"][value="CO"]').click({ force: true });
+    const pages = await page.locator("#portfolio-tabs [data-page]").evaluateAll((elements) =>
+      elements.map((element) => [element.getAttribute("data-page"), element.textContent.trim()]),
+    );
+    const expectedPages = [
+      ["hero", "Hero"],
+      ["villain:BTN", "BTN"],
+      ["villain:SB", "SB"],
+      ["villain:BB", "BB"],
+      ["villain:LJ", "LJ"],
+      ["villain:HJ", "HJ"],
+    ];
+    if (JSON.stringify(pages) !== JSON.stringify(expectedPages)) {
+      throw new Error(`unexpected 6-player tabs: ${JSON.stringify(pages)}`);
+    }
+    await page.locator('input[name="player-count"][value="2"]').click({ force: true });
+    await page.locator('input[name="hero-position"][value="BB"]').click({ force: true });
+    await page.locator("#new-hand-button").click();
+    await page.locator("#config-page-button").click();
+    const headsUpHero = await page.locator('input[name="hero-position"]:checked').evaluate((input) => input.value);
+    const headsUpPages = await page.locator("#portfolio-tabs [data-page]").evaluateAll((elements) =>
+      elements.map((element) => [element.getAttribute("data-page"), element.textContent.trim()]),
+    );
+    if (headsUpHero !== "SB" || JSON.stringify(headsUpPages) !== JSON.stringify([["hero", "Hero"], ["villain:BB", "BB"]])) {
+      throw new Error(`unexpected heads-up New hand rotation: hero=${headsUpHero} pages=${JSON.stringify(headsUpPages)}`);
+    }
     if (errors.length) {
       throw new Error(`browser errors: ${errors.join(" | ")}`);
     }

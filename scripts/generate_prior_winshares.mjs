@@ -5,13 +5,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { WIN_SHARE_CACHE_VERSION, cacheNamespace } from "../dashboard/cache_keys.mjs";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const outputPath = process.argv[2]
-  ? path.resolve(process.argv[2])
+const args = parseArgs(process.argv.slice(2));
+const outputPath = args.output
+  ? path.resolve(args.output)
   : path.join(root, "dashboard", "data", "prior_win_shares.json");
+const cacheVersion = args["cache-version"] || process.env.ESSENCE_ASSET_VERSION || "development";
 
-const keys = execFileSync("redis-cli", ["--scan", "--pattern", "eop:winshare-runouts-v2:hero:preflop:*"], {
+const keys = execFileSync("redis-cli", ["--scan", "--pattern", `eop:${cacheNamespace(cacheVersion)}:${WIN_SHARE_CACHE_VERSION}:hero:preflop:*`], {
   encoding: "utf8",
 })
   .trim()
@@ -57,6 +61,25 @@ fs.writeFileSync(
   "utf8",
 );
 console.log(`Wrote ${outputPath} from ${keys.length} cached classes`);
+
+function parseArgs(argv) {
+  const parsed = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (!arg.startsWith("--")) {
+      continue;
+    }
+    const name = arg.slice(2);
+    const next = argv[index + 1];
+    if (!next || next.startsWith("--")) {
+      parsed[name] = true;
+    } else {
+      parsed[name] = next;
+      index += 1;
+    }
+  }
+  return parsed;
+}
 
 function startingHandClassWeight(classKey) {
   if (classKey.endsWith("-pair")) {

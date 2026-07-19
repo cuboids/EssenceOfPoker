@@ -5,18 +5,22 @@ import zlib from "node:zlib";
 
 import {
   validateDashboardData,
+  validatePreflopAggregateClassPayload,
   validatePreflopAggregateCache,
   validatePreflopHandEquityCache,
-  validatePreflopHiddenVillainCache,
+  validatePreflopHiddenVillainClassPayload,
+  validatePreflopPrimaryClassPayload,
   validatePreflopPrimaryPriorCache,
   validatePriorWinShares,
 } from "../dashboard/data_contracts.mjs";
 
 const data = JSON.parse(fs.readFileSync(new URL("../dashboard/data/prior_portfolio.json", import.meta.url), "utf8"));
-const preflopAggregateCache = JSON.parse(fs.readFileSync(new URL("../dashboard/data/preflop_aggregate_cache.json", import.meta.url), "utf8"));
+const preflopAggregateCache = JSON.parse(fs.readFileSync(new URL("../essence_of_poker/data/preflop_aggregate_cache.json", import.meta.url), "utf8"));
+const preflopAggregateClass = readJsonOrGzip("../essence_of_poker/data/preflop_aggregate_classes/1-1-pair.json");
 const preflopPrimaryPriorCache = readJsonOrGzip("../essence_of_poker/data/preflop_primary_prior_cache.json");
+const preflopPrimaryClass = readJsonOrGzip("../essence_of_poker/data/preflop_primary_classes/1-1-pair.json");
 const priorWinShares = JSON.parse(fs.readFileSync(new URL("../dashboard/data/prior_win_shares.json", import.meta.url), "utf8"));
-const preflopHiddenVillainCache = JSON.parse(fs.readFileSync(new URL("../dashboard/data/preflop_hidden_villain_cache.json", import.meta.url), "utf8"));
+const preflopHiddenVillainClass = readJsonOrGzip("../essence_of_poker/data/preflop_hidden_villain_classes/1-1-pair.json");
 const preflopHandEquityCache = JSON.parse(fs.readFileSync(new URL("../dashboard/data/preflop_hand_equity_cache.json", import.meta.url), "utf8"));
 
 test("generated dashboard data satisfies the frontend contract", () => {
@@ -27,6 +31,13 @@ test("generated preflop aggregate cache satisfies the strict contract", () => {
   assert.equal(validatePreflopAggregateCache(preflopAggregateCache, { bucketCount: data.bucketCount, strictCounts: true }), preflopAggregateCache);
 });
 
+test("generated preflop aggregate class payload satisfies the strict contract", () => {
+  assert.equal(
+    validatePreflopAggregateClassPayload(preflopAggregateClass, { bucketCount: data.bucketCount, strictCounts: true }),
+    preflopAggregateClass,
+  );
+});
+
 test("generated preflop primary prior cache satisfies the strict contract", () => {
   assert.equal(
     validatePreflopPrimaryPriorCache(preflopPrimaryPriorCache, { bucketCount: data.bucketCount, strictCounts: true }),
@@ -34,14 +45,21 @@ test("generated preflop primary prior cache satisfies the strict contract", () =
   );
 });
 
+test("generated preflop primary class payload satisfies the strict contract", () => {
+  assert.equal(
+    validatePreflopPrimaryClassPayload(preflopPrimaryClass, { bucketCount: data.bucketCount, strictCounts: true }),
+    preflopPrimaryClass,
+  );
+});
+
 test("generated prior win shares satisfy the strict contract", () => {
   assert.equal(validatePriorWinShares(priorWinShares), priorWinShares);
 });
 
-test("generated preflop hidden villain cache satisfies the strict contract", () => {
+test("generated preflop hidden villain class payload satisfies the strict contract", () => {
   assert.equal(
-    validatePreflopHiddenVillainCache(preflopHiddenVillainCache, { bucketCount: data.bucketCount, strictCounts: true }),
-    preflopHiddenVillainCache,
+    validatePreflopHiddenVillainClassPayload(preflopHiddenVillainClass, { bucketCount: data.bucketCount, strictCounts: true }),
+    preflopHiddenVillainClass,
   );
 });
 
@@ -60,6 +78,15 @@ test("preflop aggregate cache contract rejects missing classes", () => {
   const malformed = { ...preflopAggregateCache, classes: {} };
 
   assert.throws(() => validatePreflopAggregateCache(malformed, { bucketCount: data.bucketCount }), /169 classes/);
+});
+
+test("preflop aggregate class contract rejects wrong probability space", () => {
+  const malformed = { ...preflopAggregateClass, probabilitySpace: "generic-seven-card" };
+
+  assert.throws(
+    () => validatePreflopAggregateClassPayload(malformed, { bucketCount: data.bucketCount }),
+    /expected probabilitySpace hero-preflop-aggregate/,
+  );
 });
 
 test("preflop hand equity cache contract rejects false exactness", () => {

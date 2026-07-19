@@ -7,7 +7,8 @@ import { fullDeck, sameCard } from "../dashboard/cards.mjs";
 import { distributionFor } from "../dashboard/curve_distributions.mjs";
 import { createHandEvaluator } from "../dashboard/evaluation.mjs";
 import { legacyHandState, startPreflopModel } from "../dashboard/hand_state.mjs";
-import { hiddenA2CVillainCurves } from "../dashboard/villain_range.mjs";
+import { hiddenVillainCurves } from "../dashboard/villain_range.mjs";
+import { computeMultiwayAggregateEquities } from "../dashboard/multiway_equity.mjs";
 import { computePreflopHeroWinSharesKernel } from "../dashboard/win_shares.mjs";
 
 const args = parseArgs(process.argv.slice(2));
@@ -50,9 +51,9 @@ const benchmarks = [
     name: "hidden-villain-complete-board-reduced",
     budgetMs: 80,
     run() {
-      hiddenA2CVillainCurves({
-        assets: data.portfolios.a2cVillain.assets,
-        aggregates: data.portfolios.a2cVillain.aggregates,
+      hiddenVillainCurves({
+        assets: data.portfolios.villain.assets,
+        aggregates: data.portfolios.villain.aggregates,
         available: [card(6, 1), card(7, 1), card(8, 2), card(9, 3), card(10, 4), card(11, 1), card(12, 2), card(13, 3)],
         knownBoardState: {
           F_1: card(1, 1),
@@ -83,6 +84,28 @@ const benchmarks = [
         handState,
         remainingDeck,
         evaluateGradationFive: evaluator.evaluateGradationFive,
+      });
+    },
+  },
+  {
+    name: "multiway-equity-six-max-5k",
+    budgetMs: 400,
+    run() {
+      const heroCards = [card(2, 1), card(5, 2)];
+      computeMultiwayAggregateEquities({
+        participants: [
+          { id: "hero", knownHoleCards: heroCards },
+          { id: "villain:SB" },
+          { id: "villain:BB" },
+          { id: "villain:LJ" },
+          { id: "villain:HJ" },
+          { id: "villain:CO" },
+        ],
+        knownBoard: [],
+        deck: fullDeck.filter((deckCard) => !heroCards.some((knownCard) => sameCard(deckCard, knownCard))),
+        evaluateGradationFive: evaluator.evaluateGradationFive,
+        nsims: 5_000,
+        seed: 1,
       });
     },
   },

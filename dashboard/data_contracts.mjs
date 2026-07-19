@@ -1,4 +1,6 @@
-const REQUIRED_PORTFOLIOS = Object.freeze(["hero", "a2cVillain"]);
+import { PROBABILITY_SPACES, assertProbabilitySpace } from "./probability_spaces.mjs";
+
+const REQUIRED_PORTFOLIOS = Object.freeze(["hero", "villain"]);
 const REQUIRED_AGGREGATES = Object.freeze(["AGG", "AGG_BOTH", "AGG_H1", "AGG_H2", "AGG_ZERO"]);
 
 export function validateDashboardData(data) {
@@ -34,6 +36,26 @@ export function validatePreflopAggregateCache(cache, { bucketCount, strictCounts
   return cache;
 }
 
+export function validatePreflopAggregateClassPayload(payload, { bucketCount, strictCounts = false } = {}) {
+  assertObject(payload, "preflop aggregate class payload");
+  assertProbabilitySpace(payload, PROBABILITY_SPACES.HERO_PREFLOP_AGGREGATE);
+  assertString(payload.source, "preflop aggregate class source");
+  if (payload.exact !== true) {
+    throw new Error("preflop aggregate class payload must be marked exact");
+  }
+  assertPositiveInteger(payload.totalCombos, "preflop aggregate class totalCombos");
+  assertPositiveInteger(payload.bucketCount, "preflop aggregate class bucketCount");
+  if (bucketCount != null && payload.bucketCount !== bucketCount) {
+    throw new Error(`preflop aggregate class bucketCount ${payload.bucketCount} does not match ${bucketCount}`);
+  }
+  assertString(payload.classKey, "preflop aggregate class key");
+  assertObject(payload.aggregates, "preflop aggregate class aggregates");
+  for (const code of REQUIRED_AGGREGATES.filter((aggregateCode) => aggregateCode !== "AGG_ZERO")) {
+    assertTrimmedCounts(payload.aggregates[code], `${payload.classKey}.${code}`, payload.bucketCount, strictCounts ? payload.totalCombos : null);
+  }
+  return payload;
+}
+
 export function validatePreflopPrimaryPriorCache(cache, { bucketCount, strictCounts = false } = {}) {
   assertObject(cache, "preflop primary prior cache");
   assertPositiveInteger(cache.totalCombos, "preflop primary prior totalCombos");
@@ -55,6 +77,28 @@ export function validatePreflopPrimaryPriorCache(cache, { bucketCount, strictCou
     }
   }
   return cache;
+}
+
+export function validatePreflopPrimaryClassPayload(payload, { bucketCount, strictCounts = false } = {}) {
+  assertObject(payload, "preflop primary class payload");
+  assertString(payload.source, "preflop primary class source");
+  if (payload.exact !== true) {
+    throw new Error("preflop primary class payload must be marked exact");
+  }
+  assertPositiveInteger(payload.totalCombos, "preflop primary class totalCombos");
+  assertPositiveInteger(payload.bucketCount, "preflop primary class bucketCount");
+  if (bucketCount != null && payload.bucketCount !== bucketCount) {
+    throw new Error(`preflop primary class bucketCount ${payload.bucketCount} does not match ${bucketCount}`);
+  }
+  assertString(payload.classKey, "preflop primary class key");
+  assertObject(payload.assets, "preflop primary class assets");
+  if (Object.keys(payload.assets).length !== 21) {
+    throw new Error(`${payload.classKey} must contain 21 primary asset priors`);
+  }
+  for (const [assetCode, trimmedCounts] of Object.entries(payload.assets)) {
+    assertTrimmedCounts(trimmedCounts, `${payload.classKey}.${assetCode}`, payload.bucketCount, strictCounts ? payload.totalCombos : null);
+  }
+  return payload;
 }
 
 export function validatePriorWinShares(cache, { assetCount = 21 } = {}) {
@@ -87,6 +131,25 @@ export function validatePreflopHiddenVillainCache(cache, { bucketCount, strictCo
     }
   }
   return cache;
+}
+
+export function validatePreflopHiddenVillainClassPayload(payload, { bucketCount, strictCounts = false } = {}) {
+  assertObject(payload, "preflop hidden villain class payload");
+  assertProbabilitySpace(payload, PROBABILITY_SPACES.HIDDEN_VILLAIN_PREFLOP_PRIMARY);
+  assertString(payload.source, "preflop hidden villain class source");
+  if (payload.exact !== true) {
+    throw new Error("preflop hidden villain class payload must be marked exact");
+  }
+  assertPositiveInteger(payload.bucketCount, "preflop hidden villain class bucketCount");
+  if (bucketCount != null && payload.bucketCount !== bucketCount) {
+    throw new Error(`preflop hidden villain class bucketCount ${payload.bucketCount} does not match ${bucketCount}`);
+  }
+  assertString(payload.classKey, "preflop hidden villain class key");
+  assertObject(payload.curves, "preflop hidden villain class curves");
+  for (const key of ["shared", "v1", "v2"]) {
+    assertTrimmedCounts(payload.curves[key], `${payload.classKey}.${key}`, payload.bucketCount, strictCounts ? payload.curves[key]?.totalCombos : null);
+  }
+  return payload;
 }
 
 export function validatePreflopHandEquityCache(cache) {

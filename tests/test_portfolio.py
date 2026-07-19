@@ -2,12 +2,12 @@ import unittest
 
 from essence_of_poker.cards import FULL_DECK, Card, Suit
 from essence_of_poker.portfolio import (
-    A2C_VILLAIN_PORTFOLIO_DEFINITIONS,
+    VILLAIN_PORTFOLIO_DEFINITIONS,
     PORTFOLIO_AGGREGATE_DEFINITIONS,
     PORTFOLIO_DEFINITIONS,
     PortfolioCategory,
     aggregate_bucket_distribution,
-    build_prior_a2c_villain_portfolio,
+    build_prior_villain_portfolio,
     build_nlhe_portfolio,
     build_prior_nlhe_portfolio,
     completion_street_for_definition,
@@ -100,19 +100,19 @@ class PortfolioTests(unittest.TestCase):
             self.assertEqual(portfolio_asset.asset.empty_slot_count, 5)
             self.assertEqual(portfolio_asset.asset.partial_deck, FULL_DECK)
 
-    def test_a2c_villain_portfolio_uses_villain_hole_labels(self) -> None:
-        self.assertEqual(len(A2C_VILLAIN_PORTFOLIO_DEFINITIONS), 21)
+    def test_villain_portfolio_uses_villain_hole_labels(self) -> None:
+        self.assertEqual(len(VILLAIN_PORTFOLIO_DEFINITIONS), 21)
         self.assertEqual(
-            A2C_VILLAIN_PORTFOLIO_DEFINITIONS[11].name,
+            VILLAIN_PORTFOLIO_DEFINITIONS[11].name,
             "V_1 + V_2 + F_1 + F_2 + F_3",
         )
         self.assertEqual(
-            A2C_VILLAIN_PORTFOLIO_DEFINITIONS[11].positions,
+            VILLAIN_PORTFOLIO_DEFINITIONS[11].positions,
             ("villain_1", "villain_2", "flop_1", "flop_2", "flop_3"),
         )
 
-    def test_build_prior_a2c_villain_portfolio_creates_21_empty_assets(self) -> None:
-        portfolio = build_prior_a2c_villain_portfolio()
+    def test_build_prior_villain_portfolio_creates_21_empty_assets(self) -> None:
+        portfolio = build_prior_villain_portfolio()
 
         self.assertEqual(len(portfolio.assets), 21)
         for portfolio_asset in portfolio.assets:

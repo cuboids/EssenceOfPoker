@@ -7,26 +7,26 @@ import { fileURLToPath } from "node:url";
 import { cardCompare, fullDeck, sameCard } from "../dashboard/cards.mjs";
 import { preflopClassKeyForCards } from "../dashboard/cache_keys.mjs";
 import { createHandEvaluator } from "../dashboard/evaluation.mjs";
-import { preflopHiddenA2CCurves } from "../dashboard/villain_range.mjs";
+import { preflopHiddenVillainCurves } from "../dashboard/villain_range.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const outputPath = process.argv[2]
   ? path.resolve(process.argv[2])
-  : path.join(root, "dashboard", "data", "preflop_hidden_villain_cache.json");
+  : path.join(root, "essence_of_poker", "data", "preflop_hidden_villain_cache.json");
 
 const data = JSON.parse(fs.readFileSync(path.join(root, "dashboard", "data", "prior_portfolio.json"), "utf8"));
 const bucketLookup = new Map(data.bucketKeys.map((bucket) => [bucket.key, bucket.gradation]));
 const evaluator = createHandEvaluator(bucketLookup, data.bucketCount);
 const priorXByGradation = new Map(data.curve.map((point) => [point.gradation, point.x]));
-const assets = data.portfolios.a2cVillain.assets;
+const assets = data.portfolios.villain.assets;
 const classes = {};
 const representatives = representativePreflopHands();
 const started = Date.now();
 
 for (const [index, representative] of representatives.entries()) {
   const available = fullDeck.filter((card) => !sameCard(card, representative.first) && !sameCard(card, representative.second));
-  const curves = preflopHiddenA2CCurves({
+  const curves = preflopHiddenVillainCurves({
     assets,
     available,
     bucketCount: data.bucketCount,

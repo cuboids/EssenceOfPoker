@@ -8,3 +8,4 @@ coverage/
 __pycache__/
 *.pyc
 essence_of_poker/data/preflop_primary_prior_cache.json
+essence_of_poker/data/preflop_hidden_villain_cache.json

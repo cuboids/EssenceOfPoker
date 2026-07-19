@@ -2,6 +2,7 @@
 set -euo pipefail
 
 python3 -m essence_of_poker.dashboard_data
+node scripts/split_preflop_primary_prior_cache.mjs
 python3 -m unittest
 node --test tests/*.test.mjs
 node scripts/performance_budgets.mjs

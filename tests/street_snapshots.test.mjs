@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   cloneCacheObject,
   cloneHandModel,
+  clonePlayerActions,
   recordStreetSnapshot,
   streetIndexForRound,
   updateStreetSnapshot,
@@ -35,11 +36,16 @@ test("street snapshots clone mutable containers", () => {
   assert.notEqual(clone.flop, model.flop);
   assert.notEqual(clone.suitMap, model.suitMap);
 
-  const recorded = recordStreetSnapshot([], model, "flop");
+  const actions = [{ player: "hero", street: "flop", type: "check" }];
+  const recorded = recordStreetSnapshot([], model, "flop", actions);
   assert.equal(recorded.viewedStreetIndex, 1);
   assert.equal(recorded.handTimeline[1].handModel.phase, "flop");
+  assert.deepEqual(recorded.handTimeline[1].playerActions, actions);
+  assert.notEqual(recorded.handTimeline[1].playerActions, actions);
 
-  const updated = updateStreetSnapshot(recorded.handTimeline, 1, model, { hero: {} }, { hero: {} });
+  const updated = updateStreetSnapshot(recorded.handTimeline, 1, model, { hero: {} }, { hero: {} }, actions);
   assert.notEqual(updated, recorded.handTimeline);
   assert.deepEqual(cloneCacheObject({ a: 1 }), { a: 1 });
+  assert.deepEqual(clonePlayerActions(actions), actions);
+  assert.notEqual(clonePlayerActions(actions), actions);
 });

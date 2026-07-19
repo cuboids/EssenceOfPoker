@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import zlib from "node:zlib";
 
 import {
   cardCompare,
@@ -19,12 +20,21 @@ import {
 import { chartDomain, normalCdf, normalPdf, normalQuantileClamped } from "../dashboard/charts.mjs";
 import { readApiCache } from "../dashboard/cache_client.mjs";
 import { createComputationWorker } from "../dashboard/computation_worker_client.mjs";
+import { curvesForKnownAssets as curvesForKnownAssetsKernel } from "../dashboard/curve_distributions.mjs";
 import { createHandEvaluator, evaluateKey } from "../dashboard/evaluation.mjs";
 import {
   aggregateGradationsForSevenCards,
   combinationsOfIndexes,
   curveFromCounts,
 } from "../dashboard/portfolio_curves.mjs";
+import {
+  bestSevenCardGradation,
+  computeMultiwayAggregateEquities,
+  computeMultiwayAggregateEquitiesChunked,
+  multiwayEquityCacheKey,
+  removeKnownCards,
+} from "../dashboard/multiway_equity.mjs";
+import { PROBABILITY_SPACES, assertProbabilitySpace, probabilitySpaceDefinitions } from "../dashboard/probability_spaces.mjs";
 import { computePreflopHeroAssetPriorKernel } from "../dashboard/preflop_asset_priors.mjs";
 import {
   accumulatePreflopOrderedStreetShare,
@@ -36,7 +46,11 @@ import { cardHtml, compactTokenHtml, escapeHtml, formatCombos, formatPercent } f
 
 const data = JSON.parse(fs.readFileSync(new URL("../dashboard/data/prior_portfolio.json", import.meta.url), "utf8"));
 const priorWinShares = JSON.parse(fs.readFileSync(new URL("../dashboard/data/prior_win_shares.json", import.meta.url), "utf8"));
-const preflopHiddenVillainCache = JSON.parse(fs.readFileSync(new URL("../dashboard/data/preflop_hidden_villain_cache.json", import.meta.url), "utf8"));
+const preflopAggregateManifest = JSON.parse(fs.readFileSync(new URL("../essence_of_poker/data/preflop_aggregate_manifest.json", import.meta.url), "utf8"));
+const preflopAggregateAces = readJsonOrGzip("../essence_of_poker/data/preflop_aggregate_classes/1-1-pair.json");
+const preflopPrimaryClass = readJsonOrGzip("../essence_of_poker/data/preflop_primary_classes/1-1-pair.json");
+const preflopHiddenVillainManifest = JSON.parse(fs.readFileSync(new URL("../essence_of_poker/data/preflop_hidden_villain_manifest.json", import.meta.url), "utf8"));
+const preflopHiddenVillainAces = readJsonOrGzip("../essence_of_poker/data/preflop_hidden_villain_classes/1-1-pair.json");
 const preflopHandEquityCache = JSON.parse(fs.readFileSync(new URL("../dashboard/data/preflop_hand_equity_cache.json", import.meta.url), "utf8"));
 const bucketLookup = new Map(data.bucketKeys.map((bucket) => [bucket.key, bucket.gradation]));
 const evaluator = createHandEvaluator(bucketLookup, data.bucketCount);
@@ -85,6 +99,131 @@ test("portfolio curve helpers compute curves and aggregate minimums without the 
   );
   assert.equal(gradations.AGG, 1);
   assert.equal(gradations.AGG_BOTH, 1);
+});
+
+test("known asset curves can hydrate preflop primary classes without enumeration", () => {
+  const aggregateOnlyCache = { AGG: preflopAggregateAces.aggregates.AGG, classes: { "1-1-pair": preflopAggregateAces.aggregates } };
+  const curves = curvesForKnownAssetsKernel({
+    assets: data.portfolios.hero.assets,
+    aggregates: [],
+    remainingDeck: [],
+    knownCardsForAsset: () => {
+      throw new Error("preflop primary cache should avoid known-card enumeration");
+    },
+    bucketCount: data.bucketCount,
+    priorXByGradation: new Map(data.curve.map((point) => [point.gradation, point.x])),
+    evaluateGradation: evaluator.evaluateGradation,
+    preflopPrimaryCache: preflopPrimaryClass.assets,
+    preflopAggregateCache: aggregateOnlyCache,
+    preflopClassKey: "1-1-pair",
+  });
+
+  assert.equal(Object.keys(curves).length, 21);
+  assert.equal(curves["1.1"].totalCombos, preflopPrimaryClass.totalCombos);
+});
+
+test("multiway aggregate equity scores exact known worlds and splits ties", () => {
+  const boardRoyal = [card(1, 1), card(2, 1), card(3, 1), card(4, 1), card(5, 1)];
+  const tied = computeMultiwayAggregateEquities({
+    participants: [
+      { id: "hero", knownHoleCards: [card(8, 2), card(9, 3)] },
+      { id: "villain:BB", knownHoleCards: [card(10, 2), card(11, 3)] },
+    ],
+    knownBoard: boardRoyal,
+    deck: [],
+    evaluateGradationFive: evaluator.evaluateGradationFive,
+  });
+  assert.equal(tied.exact, true);
+  assert.deepEqual(tied.equities, { hero: 0.5, "villain:BB": 0.5 });
+
+  const heroRoyal = computeMultiwayAggregateEquities({
+    participants: [
+      { id: "hero", knownHoleCards: [card(1, 1), card(2, 1)] },
+      { id: "villain:BB", knownHoleCards: [card(1, 2), card(1, 3)] },
+    ],
+    knownBoard: [card(3, 1), card(4, 1), card(5, 1), card(12, 4), card(13, 4)],
+    deck: [],
+    evaluateGradationFive: evaluator.evaluateGradationFive,
+  });
+  assert.deepEqual(heroRoyal.equities, { hero: 1, "villain:BB": 0 });
+  assert.equal(bestSevenCardGradation([...heroRoyalKnownCards()], evaluator.evaluateGradationFive), 1);
+});
+
+test("multiway aggregate equity excludes folded participants and keys include blockers", () => {
+  const result = computeMultiwayAggregateEquities({
+    participants: [
+      { id: "hero", knownHoleCards: [card(1, 1), card(1, 2)] },
+      { id: "villain:BB", folded: true },
+    ],
+    knownBoard: [],
+    deck: fullDeck,
+    evaluateGradationFive: evaluator.evaluateGradationFive,
+  });
+  assert.deepEqual(result.equities, { hero: 1 });
+
+  const firstKey = multiwayEquityCacheKey({
+    matchup: "range",
+    participants: [{ id: "range" }, { id: "villain:BB" }],
+    knownBoard: [],
+    deadCards: [card(1, 1), card(2, 1)],
+    foldedPages: [],
+    nsims: 100,
+  });
+  const secondKey = multiwayEquityCacheKey({
+    matchup: "range",
+    participants: [{ id: "range" }, { id: "villain:BB" }],
+    knownBoard: [],
+    deadCards: [card(1, 1), card(3, 1)],
+    foldedPages: [],
+    nsims: 100,
+  });
+  assert.notEqual(firstKey, secondKey);
+  assert.equal(removeKnownCards([card(1, 1), card(2, 1)], [card(1, 1)]).length, 1);
+});
+
+test("chunked multiway aggregate equity matches deterministic kernel", async () => {
+  const participants = [
+    { id: "hero", knownHoleCards: [card(2, 1), card(5, 2)] },
+    { id: "villain:SB" },
+    { id: "villain:BB" },
+  ];
+  const deck = removeKnownCards(fullDeck, participants[0].knownHoleCards);
+  const direct = computeMultiwayAggregateEquities({
+    participants,
+    knownBoard: [card(9, 1), card(10, 2), card(12, 3)],
+    deck,
+    evaluateGradationFive: evaluator.evaluateGradationFive,
+    nsims: 120,
+    seed: 42,
+  });
+  const chunked = await computeMultiwayAggregateEquitiesChunked({
+    participants,
+    knownBoard: [card(9, 1), card(10, 2), card(12, 3)],
+    deck,
+    evaluateGradationFive: evaluator.evaluateGradationFive,
+    nsims: 120,
+    seed: 42,
+    chunkSize: 10,
+    yieldFn: () => Promise.resolve(),
+  });
+
+  assert.deepEqual(chunked, direct);
+});
+
+function heroRoyalKnownCards() {
+  return [card(1, 1), card(2, 1), card(3, 1), card(4, 1), card(5, 1), card(12, 4), card(13, 4)];
+}
+
+test("probability-space registry rejects mismatched generated data", () => {
+  assert.equal(probabilitySpaceDefinitions[PROBABILITY_SPACES.HIDDEN_VILLAIN_PREFLOP_PRIMARY].exact, true);
+  assert.equal(
+    assertProbabilitySpace(preflopHiddenVillainAces, PROBABILITY_SPACES.HIDDEN_VILLAIN_PREFLOP_PRIMARY),
+    preflopHiddenVillainAces,
+  );
+  assert.throws(
+    () => assertProbabilitySpace(preflopHiddenVillainAces, PROBABILITY_SPACES.GENERIC_SEVEN_CARD),
+    /expected probabilitySpace generic-seven-card/,
+  );
 });
 
 test("chart math is importable and numerically sane", () => {
@@ -166,14 +305,25 @@ test("preflop primary prior kernel counts ordered street layouts outside the DOM
 });
 
 test("preflop hidden villain cache covers all canonical holding classes", () => {
-  assert.equal(preflopHiddenVillainCache.bucketCount, data.bucketCount);
-  assert.equal(Object.keys(preflopHiddenVillainCache.classes).length, 169);
-  const aces = preflopHiddenVillainCache.classes["1-1-pair"];
+  assert.equal(preflopHiddenVillainManifest.bucketCount, data.bucketCount);
+  assert.equal(preflopHiddenVillainManifest.classes.length, 169);
+  const aces = preflopHiddenVillainAces.curves;
   assert.equal(aces.shared.totalCombos, 2_118_760);
   assert.equal(aces.v1.totalCombos, 238_360_500);
   assert.equal(aces.v2.totalCombos, 238_360_500);
   for (const curve of Object.values(aces)) {
     assert.equal(curve.counts.reduce((sum, count) => sum + count, 0), curve.totalCombos);
+  }
+});
+
+test("preflop aggregate cache covers all canonical holding classes", () => {
+  assert.equal(preflopAggregateManifest.bucketCount, data.bucketCount);
+  assert.equal(preflopAggregateManifest.classes.length, 169);
+  assert.equal(preflopAggregateAces.probabilitySpace, PROBABILITY_SPACES.HERO_PREFLOP_AGGREGATE);
+  assert.equal(preflopAggregateAces.totalCombos, 2_118_760);
+  assert.deepEqual(Object.keys(preflopAggregateAces.aggregates).sort(), ["AGG", "AGG_BOTH", "AGG_H1", "AGG_H2"]);
+  for (const aggregate of Object.values(preflopAggregateAces.aggregates)) {
+    assert.equal(aggregate.counts.reduce((sum, count) => sum + count, 0), preflopAggregateAces.totalCombos);
   }
 });
 
@@ -215,3 +365,12 @@ test("controller support modules are importable without the DOM", () => {
   assert.equal(typeof readApiCache, "function");
   assert.equal(createComputationWorker("test"), null);
 });
+
+function readJsonOrGzip(relativePath) {
+  const jsonUrl = new URL(relativePath, import.meta.url);
+  if (fs.existsSync(jsonUrl)) {
+    return JSON.parse(fs.readFileSync(jsonUrl, "utf8"));
+  }
+  const compressed = fs.readFileSync(new URL(`${relativePath}.gz`, import.meta.url));
+  return JSON.parse(zlib.gunzipSync(compressed).toString("utf8"));
+}

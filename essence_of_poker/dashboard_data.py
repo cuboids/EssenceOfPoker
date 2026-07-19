@@ -10,7 +10,7 @@ from essence_of_poker.hand_buckets import HandBucket, HandCategory, bucket_key
 from essence_of_poker.portfolio import (
     PORTFOLIO_DEFINITIONS,
     PORTFOLIO_AGGREGATE_DEFINITIONS,
-    build_prior_a2c_villain_portfolio,
+    build_prior_villain_portfolio,
     build_prior_nlhe_portfolio,
 )
 
@@ -18,7 +18,7 @@ from essence_of_poker.portfolio import (
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "dashboard" / "data" / "prior_portfolio.json"
 PRIOR_AGGREGATE_COUNTS_PATH = PROJECT_ROOT / "essence_of_poker" / "data" / "prior_aggregate_counts.json"
-PREFLOP_AGGREGATE_CACHE_PATH = PROJECT_ROOT / "dashboard" / "data" / "preflop_aggregate_cache.json"
+PREFLOP_AGGREGATE_CACHE_PATH = PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_aggregate_cache.json"
 PREFLOP_PRIMARY_PRIOR_CACHE_PATH = PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_primary_prior_cache.json"
 
 CATEGORY_DISPLAY_NAMES = {
@@ -48,7 +48,7 @@ CATEGORY_COLORS = {
 
 def prior_dashboard_data() -> dict:
     hero_portfolio = build_prior_nlhe_portfolio()
-    a2c_villain_portfolio = build_prior_a2c_villain_portfolio()
+    villain_portfolio = build_prior_villain_portfolio()
     distribution = empty_asset().bucket_distribution()
     prior_aggregate_counts = _prior_aggregate_counts()
     primary_priors = _portfolio_primary_priors()
@@ -91,9 +91,9 @@ def prior_dashboard_data() -> dict:
                 "assets": _portfolio_assets(hero_portfolio.assets, primary_priors),
                 "aggregates": _portfolio_aggregates(PORTFOLIO_AGGREGATE_DEFINITIONS, aggregate_priors),
             },
-            "a2cVillain": {
+            "villain": {
                 "name": "Villain",
-                "assets": _portfolio_assets(a2c_villain_portfolio.assets, primary_priors),
+                "assets": _portfolio_assets(villain_portfolio.assets, primary_priors),
                 "aggregates": _portfolio_aggregates(PORTFOLIO_AGGREGATE_DEFINITIONS, aggregate_priors),
             },
         },

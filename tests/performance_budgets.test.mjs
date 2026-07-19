@@ -25,6 +25,7 @@ test("performance budget script reports named benchmark budgets", async () => {
       "known-card-distribution-reduced",
       "hidden-villain-complete-board-reduced",
       "preflop-win-share-kernel-reduced",
+      "multiway-equity-six-max-5k",
     ],
   );
   assert.ok(report.results.every((result) => Number.isFinite(result.durationMs) && result.budgetMs > 0));

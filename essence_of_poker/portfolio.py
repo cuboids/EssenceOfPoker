@@ -231,7 +231,7 @@ PORTFOLIO_DEFINITIONS: tuple[PortfolioAssetDefinition, ...] = tuple(
 )
 
 
-A2C_VILLAIN_PORTFOLIO_DEFINITIONS: tuple[PortfolioAssetDefinition, ...] = tuple(
+VILLAIN_PORTFOLIO_DEFINITIONS: tuple[PortfolioAssetDefinition, ...] = tuple(
     PortfolioAssetDefinition(
         definition.code,
         definition.category,
@@ -338,12 +338,12 @@ def build_prior_nlhe_portfolio() -> Portfolio:
     )
 
 
-def build_prior_a2c_villain_portfolio() -> Portfolio:
-    """Build the 21-asset A2C villain portfolio before hidden cards are dealt."""
+def build_prior_villain_portfolio() -> Portfolio:
+    """Build the 21-asset villain portfolio before hidden cards are dealt."""
     return Portfolio(
         tuple(
             PortfolioAsset(definition=definition, asset=empty_asset())
-            for definition in A2C_VILLAIN_PORTFOLIO_DEFINITIONS
+            for definition in VILLAIN_PORTFOLIO_DEFINITIONS
         )
     )
 

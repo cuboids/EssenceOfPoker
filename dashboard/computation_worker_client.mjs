@@ -37,6 +37,13 @@ export function createComputationWorker(assetVersion) {
         return fallback();
       }
     },
+    async computeMultiwayEquities(payload, fallback) {
+      try {
+        return await postWorkerRequest(worker, pending, nextId++, "computeMultiwayEquities", payload);
+      } catch {
+        return fallback();
+      }
+    },
     cancelPending() {
       const error = new Error("worker computation cancelled");
       for (const id of pending.keys()) {

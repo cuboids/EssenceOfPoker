@@ -20,6 +20,7 @@ const limit = args.limit == null ? null : Number(args.limit);
 const only = args.only ? new Set(String(args.only).split(",").map((value) => value.trim())) : null;
 const shardCount = args["shard-count"] == null ? 1 : Number(args["shard-count"]);
 const shardIndex = args["shard-index"] == null ? 0 : Number(args["shard-index"]);
+const cacheVersion = args["cache-version"] || process.env.ESSENCE_ASSET_VERSION || "development";
 
 if (limit != null && (!Number.isInteger(limit) || limit < 0)) {
   throw new Error("--limit must be a non-negative integer");
@@ -54,7 +55,7 @@ for (const [representativeIndex, entry] of representatives.entries()) {
   }
 
   attempted += 1;
-  const key = heroPreflopWinShareCacheKey(entry.first, entry.second);
+  const key = heroPreflopWinShareCacheKey(entry.first, entry.second, { dataVersion: cacheVersion });
   const hit = await readCache(key);
   if (hit) {
     skipped += 1;

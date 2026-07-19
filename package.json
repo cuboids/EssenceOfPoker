@@ -1,0 +1,29 @@
+{
+  "name": "essenceofpoker",
+  "version": "1.0.0",
+  "description": "This project explores the mathematical essence of poker.",
+  "type": "module",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "verify": "bash scripts/verify.sh",
+    "prewarm:preflop-multiway": "node scripts/prewarm_preflop_multiway_equities.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cuboids/EssenceOfPoker.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/cuboids/EssenceOfPoker/issues"
+  },
+  "homepage": "https://github.com/cuboids/EssenceOfPoker#readme",
+  "devDependencies": {
+    "fast-check": "^4.9.0"
+  }
+}

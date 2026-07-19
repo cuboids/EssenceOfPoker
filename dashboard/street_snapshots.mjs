@@ -26,17 +26,21 @@ export function emptyStreetSnapshot(handModel) {
     handModel: cloneHandModel(handModel),
     currentCurves: {},
     currentWinShares: {},
+    playerActions: [],
   };
 }
 
-export function recordStreetSnapshot(handTimeline, handModel, round) {
+export function recordStreetSnapshot(handTimeline, handModel, round, playerActions = []) {
   const viewedStreetIndex = streetIndexForRound(round);
   const nextTimeline = handTimeline.slice(0, viewedStreetIndex);
-  nextTimeline[viewedStreetIndex] = emptyStreetSnapshot(handModel);
+  nextTimeline[viewedStreetIndex] = {
+    ...emptyStreetSnapshot(handModel),
+    playerActions: clonePlayerActions(playerActions),
+  };
   return { handTimeline: nextTimeline, viewedStreetIndex };
 }
 
-export function updateStreetSnapshot(handTimeline, viewedStreetIndex, handModel, currentCurves, currentWinShares) {
+export function updateStreetSnapshot(handTimeline, viewedStreetIndex, handModel, currentCurves, currentWinShares, playerActions = []) {
   if (viewedStreetIndex < 0) {
     return handTimeline;
   }
@@ -45,6 +49,11 @@ export function updateStreetSnapshot(handTimeline, viewedStreetIndex, handModel,
     handModel: cloneHandModel(handModel),
     currentCurves: cloneCacheObject(currentCurves),
     currentWinShares: cloneCacheObject(currentWinShares),
+    playerActions: clonePlayerActions(playerActions),
   };
   return nextTimeline;
+}
+
+export function clonePlayerActions(actions = []) {
+  return actions.map((action) => ({ ...action }));
 }

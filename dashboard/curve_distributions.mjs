@@ -14,6 +14,7 @@ export function curvesForKnownAssets({
   bucketCount,
   priorXByGradation,
   evaluateGradation,
+  preflopPrimaryCache = null,
   preflopAggregateCache = null,
   preflopClassKey = null,
   aggregateIndexGroups = AGGREGATE_INDEX_GROUPS,
@@ -21,6 +22,15 @@ export function curvesForKnownAssets({
   const curves = {};
   const cache = new Map();
   for (const asset of assets) {
+    if (preflopPrimaryCache?.[asset.code]) {
+      curves[asset.code] = curveFromTrimmedCounts(
+        preflopPrimaryCache[asset.code],
+        preflopPrimaryCache[asset.code].totalCombos,
+        bucketCount,
+        priorXByGradation,
+      );
+      continue;
+    }
     const knownCards = knownCardsForAsset(asset);
     const cacheKey = knownCards.map((card) => `${card.rank}:${card.suit}`).sort().join("|");
     if (!cache.has(cacheKey)) {

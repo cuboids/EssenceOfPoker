@@ -500,6 +500,17 @@ dd {
   color: var(--accent);
 }
 
+.page-tab.is-folded {
+  opacity: 0.44;
+  filter: saturate(0.45);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.page-tab.is-folded.is-active {
+  opacity: 0.62;
+}
+
 .showdown-button {
   margin-left: auto;
   background: var(--accent);
@@ -552,6 +563,68 @@ dd {
   padding: 12px 0;
   border-top: 1px solid var(--line);
   cursor: pointer;
+}
+
+.config-row-stack {
+  align-items: flex-start;
+  flex-direction: column;
+  cursor: default;
+}
+
+.config-segmented {
+  display: inline-grid;
+  grid-template-columns: repeat(6, minmax(42px, auto));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--page-soft);
+}
+
+.config-segmented label {
+  min-height: 32px;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.config-segmented label.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.config-segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.config-segmented span {
+  display: inline-grid;
+  place-items: center;
+  min-height: 30px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.config-segmented input:checked + span {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.config-villain-status input:checked + span {
+  background: color-mix(in srgb, #c93d3d 14%, var(--panel));
+  color: #b73535;
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.theme-dark .config-villain-status input:checked + span {
+  color: #ff8b8b;
 }
 
 .config-title,
@@ -799,6 +872,237 @@ p sub,
   height: 78px;
   margin-top: 10px;
   display: block;
+}
+
+.action-controls {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 12px;
+}
+
+.action-history {
+  display: grid;
+  gap: 8px;
+}
+
+.action-street-section {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.action-street {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  border-radius: 4px;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 860;
+  text-transform: uppercase;
+}
+
+.action-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.action-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--street-color) 16%, var(--panel));
+  border-color: color-mix(in srgb, var(--street-color) 38%, var(--line));
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.action-tag:hover {
+  background: color-mix(in srgb, var(--street-color) 24%, var(--panel));
+}
+
+.action-tag-player {
+  color: color-mix(in srgb, var(--street-color) 78%, var(--text));
+  font-weight: 900;
+}
+
+.action-tag-delete {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.action-empty {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+[data-street="preflop"] {
+  --street-color: #2f7dd1;
+  background: #2f7dd1;
+}
+
+[data-street="flop"] {
+  --street-color: #1e9c72;
+  background: #1e9c72;
+}
+
+[data-street="turn"] {
+  --street-color: #c28218;
+  background: #c28218;
+}
+
+[data-street="river"] {
+  --street-color: #b64f9a;
+  background: #b64f9a;
+}
+
+.action-tag[data-street="preflop"],
+.action-tag[data-street="flop"],
+.action-tag[data-street="turn"],
+.action-tag[data-street="river"] {
+  background: color-mix(in srgb, var(--street-color) 16%, var(--panel));
+}
+
+.action-composer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.action-current-player {
+  min-width: 92px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 860;
+}
+
+.stack-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.stack-config-field {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.stack-config-field input {
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--page-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 760;
+  text-align: right;
+}
+
+.action-select {
+  height: 30px;
+  min-width: 110px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--page-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.action-sizing {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: min(100%, 420px);
+}
+
+.sizing-label {
+  min-width: 46px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 860;
+  text-transform: capitalize;
+}
+
+.sizing-slider {
+  flex: 1 1 180px;
+  min-width: 140px;
+  accent-color: var(--accent);
+}
+
+.sizing-output {
+  min-width: 44px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 860;
+  text-align: right;
+}
+
+.action-button {
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--page-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 780;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+.action-add-button {
+  border-color: rgba(41, 168, 111, 0.34);
+  background: rgba(41, 168, 111, 0.13);
+  color: #1f8e5d;
+}
+
+.raise-input {
+  width: 60px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 740;
+  text-align: right;
+}
+
+.raise-unit,
+.action-empty {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
 }
 
 .asset-pending {

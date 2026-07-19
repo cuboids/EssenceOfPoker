@@ -1,4 +1,5 @@
 import { createHandEvaluator } from "./evaluation.mjs";
+import { computeMultiwayAggregateEquities } from "./multiway_equity.mjs";
 import {
   computePreflopHeroWinSharesKernel,
   computeRunoutWinShares,
@@ -14,12 +15,14 @@ self.addEventListener("message", (event) => {
     cancelledIds.add(id);
     return;
   }
-  if (type !== "computeWinShares") {
+  if (type !== "computeWinShares" && type !== "computeMultiwayEquities") {
     return;
   }
 
   try {
-    const result = computeWinShares(payload);
+    const result = type === "computeMultiwayEquities"
+      ? computeMultiwayEquities(payload)
+      : computeWinShares(payload);
     if (!cancelledIds.has(id)) {
       self.postMessage({ id, ok: true, result });
     }
@@ -49,6 +52,18 @@ function computeWinShares(payload) {
     remainingDeck: payload.remainingDeck,
     suitMap: new Map(payload.suitMapEntries || []),
     evaluateGradation: handEvaluator.evaluateGradation,
+  });
+}
+
+function computeMultiwayEquities(payload) {
+  const handEvaluator = evaluatorFor(payload.bucketKeys, payload.bucketCount);
+  return computeMultiwayAggregateEquities({
+    participants: payload.participants,
+    knownBoard: payload.knownBoard,
+    deck: payload.deck,
+    evaluateGradationFive: handEvaluator.evaluateGradationFive,
+    nsims: payload.nsims,
+    seed: payload.seed,
   });
 }
 

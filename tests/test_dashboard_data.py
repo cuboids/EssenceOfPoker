@@ -115,13 +115,13 @@ class DashboardDataTests(unittest.TestCase):
             _probabilities(data["priorAggregate"]["counts"]),
         )
 
-    def test_prior_dashboard_data_includes_hero_and_a2c_villain_portfolios(self) -> None:
+    def test_prior_dashboard_data_includes_hero_and_villain_portfolios(self) -> None:
         data = self.data
 
         self.assertEqual(len(data["portfolios"]["hero"]["assets"]), 21)
         self.assertEqual(len(data["portfolios"]["hero"]["aggregates"]), 5)
-        self.assertEqual(len(data["portfolios"]["a2cVillain"]["assets"]), 21)
-        self.assertEqual(len(data["portfolios"]["a2cVillain"]["aggregates"]), 5)
+        self.assertEqual(len(data["portfolios"]["villain"]["assets"]), 21)
+        self.assertEqual(len(data["portfolios"]["villain"]["aggregates"]), 5)
         self.assertEqual(data["portfolios"]["hero"]["aggregates"][0]["name"], "Hand Aggregate")
         self.assertEqual(len(data["portfolios"]["hero"]["aggregates"][1]["assetCodes"]), 10)
         self.assertEqual(
@@ -129,16 +129,16 @@ class DashboardDataTests(unittest.TestCase):
             ["AGGREGATE", "CARD_1_PLUS_CARD_2", "CARD_1", "CARD_2", "ZERO"],
         )
         self.assertEqual(
-            data["portfolios"]["a2cVillain"]["assets"][11]["name"],
+            data["portfolios"]["villain"]["assets"][11]["name"],
             "V_1 + V_2 + F_1 + F_2 + F_3",
         )
         self.assertEqual(
-            data["portfolios"]["a2cVillain"]["assets"][11]["positions"],
+            data["portfolios"]["villain"]["assets"][11]["positions"],
             ("villain_1", "villain_2", "flop_1", "flop_2", "flop_3"),
         )
 
     def test_preflop_aggregate_cache_has_all_canonical_starting_hands(self) -> None:
-        cache_path = Path(__file__).resolve().parent.parent / "dashboard" / "data" / "preflop_aggregate_cache.json"
+        cache_path = Path(__file__).resolve().parent.parent / "essence_of_poker" / "data" / "preflop_aggregate_cache.json"
         cache = json.loads(cache_path.read_text(encoding="utf-8"))
 
         self.assertEqual(cache["totalCombos"], 2118760)

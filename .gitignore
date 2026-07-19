@@ -5,7 +5,13 @@ build/
 coverage/
 .env
 .env.local
+data/
+*.sqlite
+*.sqlite3
+*.db
 __pycache__/
 *.pyc
 essence_of_poker/data/preflop_primary_prior_cache.json
 essence_of_poker/data/preflop_hidden_villain_cache.json
+essence_of_poker/data/empirical_baseline_tables.json
+essence_of_poker/data/compact_softmax_range_model.json

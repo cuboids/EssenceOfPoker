@@ -42,6 +42,10 @@ import {
   tokenIndexForWinShare,
 } from "../dashboard/win_shares.mjs";
 import { winShareSignal } from "../dashboard/win_signal.mjs";
+import { chartSvg } from "../dashboard/renderers/chart_renderer.mjs";
+import { renderConfigPageHtml } from "../dashboard/renderers/config_renderer.mjs";
+import { renderRangeMatrixHtml } from "../dashboard/renderers/range_matrix_renderer.mjs";
+import { renderShowdownSectionHtml } from "../dashboard/renderers/showdown_renderer.mjs";
 import { cardHtml, compactTokenHtml, escapeHtml, formatCombos, formatPercent } from "../dashboard/ui.mjs";
 
 const data = JSON.parse(fs.readFileSync(new URL("../dashboard/data/prior_portfolio.json", import.meta.url), "utf8"));
@@ -134,6 +138,8 @@ test("multiway aggregate equity scores exact known worlds and splits ties", () =
     evaluateGradationFive: evaluator.evaluateGradationFive,
   });
   assert.equal(tied.exact, true);
+  assert.equal(tied.approximation.method, "exact");
+  assert.equal(tied.approximation.conservativeMargin95, 0);
   assert.deepEqual(tied.equities, { hero: 0.5, "villain:BB": 0.5 });
 
   const heroRoyal = computeMultiwayAggregateEquities({
@@ -208,6 +214,21 @@ test("chunked multiway aggregate equity matches deterministic kernel", async () 
   });
 
   assert.deepEqual(chunked, direct);
+  assert.equal(direct.exact, false);
+  assert.equal(direct.seed, 42);
+  assert.equal(direct.approximation.method, "monte-carlo");
+  assert.ok(direct.approximation.maxStandardError > 0);
+  assert.ok(direct.approximation.conservativeMargin95 > direct.approximation.maxStandardError);
+
+  const repeated = computeMultiwayAggregateEquities({
+    participants,
+    knownBoard: [card(9, 1), card(10, 2), card(12, 3)],
+    deck,
+    evaluateGradationFive: evaluator.evaluateGradationFive,
+    nsims: 120,
+    seed: 42,
+  });
+  assert.deepEqual(repeated, direct);
 });
 
 function heroRoyalKnownCards() {
@@ -356,6 +377,71 @@ test("ui helpers format card and numeric display without the DOM", () => {
   assert.equal(formatCombos(1_600_000), "1.6m");
   assert.equal(formatCombos(2_809_475_760), "2.8b");
   assert.equal(formatPercent(0.00854), "0.854%");
+});
+
+test("renderer helpers produce dashboard HTML without the DOM", () => {
+  const configHtml = renderConfigPageHtml({
+    normalized: {
+      playerCount: 2,
+      positions: ["SB", "BB"],
+      heroPosition: "SB",
+      playerStacks: { SB: 100, BB: 100 },
+    },
+    hideInactiveAssets: true,
+    calibrationContext: { stakeBucket: "micro", yearBucket: "2019+" },
+    playerCounts: [2, 3],
+    tablePositions: ["SB", "BB", "BTN"],
+    archetypeNames: ["tag"],
+    profiles: [{ playerId: "hero", label: "Hero (SB)", profile: { tag: 0.4 } }],
+  });
+  assert.match(configHtml, /name="player-count"/);
+  assert.match(configHtml, /Hero \(SB\)/);
+
+  const matrixHtml = renderRangeMatrixHtml({
+    title: "Hero range",
+    description: "weights",
+    explanation: "baseline",
+    percent: "13.3%",
+    range: { combos: [], summary: { totalCombos: 0, weightedCombos: 0, frequency: 0 } },
+    evidence: { status: "idle" },
+  });
+  assert.match(matrixHtml, /range-matrix-large/);
+  assert.match(matrixHtml, /Hero range/);
+
+  const showdownHtml = renderShowdownSectionHtml({
+    settlement: { complete: true, potSize: 12 },
+    summaryText: "Hero wins 12",
+    rows: [{
+      label: "Hero",
+      net: 10,
+      winnings: 12,
+      contribution: 2,
+      folded: false,
+      gradation: 1,
+      category: { name: "Straight flush", color: "#00897b" },
+      holeCards: [card(1, 1), card(2, 1)],
+    }],
+    pots: [{ label: "Main pot", amount: 12, winnerLabels: ["Hero"] }],
+  });
+  assert.match(showdownHtml, /Showdown/);
+  assert.match(showdownHtml, /Straight flush/);
+
+  const chartHtml = chartSvg({
+    curve: [{ gradation: 1, probability: 0.5, x: 0.5 }, { gradation: 2, probability: 1, x: 1 }],
+    bands: [{ start: 1, end: 2, name: "Straight flush", color: "#00897b", shade: 0.5 }],
+    bucketCount: 2,
+    bestGradation: 1,
+    worstGradation: 2,
+    ceilingGradation: null,
+    config: smallChart,
+    showGrid: false,
+    label: "test chart",
+    chartMode: "cdf-straight",
+    naturalXByGradation: new Map([[1, 0.5], [2, 1]]),
+    categoryForGradation: () => ({ color: "#00897b" }),
+  });
+  assert.match(chartHtml, /sparkline/);
+  assert.match(chartHtml, /polyline/);
 });
 
 test("controller support modules are importable without the DOM", () => {

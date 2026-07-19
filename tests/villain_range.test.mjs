@@ -179,3 +179,26 @@ test("weighted range curves evaluate the live weighted hole-card combos", () => 
   assert.equal(curves.ZERO.bestGradation, zeroGradation);
   assert.equal(curves.AGG.bestGradation, Math.min(bothGradation, zeroGradation));
 });
+
+test("weighted range curves reject empty weighted ranges instead of falling back", () => {
+  assert.throws(() => weightedRangeAssetCurves({
+    assets: [{ code: "BOTH", name: "V_1 + V_2 + F_1 + F_2 + F_3" }],
+    range: {
+      player: "villain:LJ",
+      combos: [{ cards: [card(1, 1), card(1, 2)], weight: 0 }],
+    },
+    available: [card(1, 1), card(1, 2)],
+    knownBoardState: {
+      F_1: card(5, 1),
+      F_2: card(6, 1),
+      F_3: card(7, 1),
+    },
+    futureBoardTokens: [],
+    bucketCount: data.bucketCount,
+    priorXByGradation,
+    chooseTable: evaluator.chooseTable,
+    evaluateGradation: evaluator.evaluateGradation,
+    nsims: 10,
+    seed: 11,
+  }), /no legal positive-weight combos/);
+});

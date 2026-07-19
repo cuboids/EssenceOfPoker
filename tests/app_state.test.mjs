@@ -18,7 +18,7 @@ test("app state groups runtime data into explicit ownership buckets", () => {
 
   assert.equal(state.assetVersion, "test-version");
   assert.equal(state.hand.model.phase, HAND_PHASES.EMPTY);
-  assert.equal(state.hand.legacy, null);
+  assert.equal(state.hand.view, null);
   assert.equal(state.hand.villainShowdown, false);
   assert.deepEqual(state.data.preflopAggregateClasses, {});
   assert.deepEqual(state.computed.curves, {});

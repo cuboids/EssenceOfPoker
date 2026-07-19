@@ -1,5 +1,8 @@
 export const ACTION_STREETS = Object.freeze(["preflop", "flop", "turn", "river"]);
 export const ACTION_TYPES = Object.freeze(["fold", "check", "call", "bet", "raise", "all-in"]);
+export const FORCED_ACTION_TYPES = Object.freeze(["small-blind", "big-blind"]);
+export const DEFAULT_SMALL_BLIND = 0.5;
+export const DEFAULT_BIG_BLIND = 1;
 
 const STREET_INDEX = Object.freeze({
   preflop: 0,
@@ -31,6 +34,27 @@ export function appendPlayerAction(actions, nextAction) {
   return [...actions, normalized];
 }
 
+export function appendLegalPlayerAction(actions, nextAction, context) {
+  const normalized = {
+    ...normalizePlayerAction(nextAction),
+    id: nextAction.id || nextActionId(actions),
+  };
+  const error = actionLegalityError([...actions, normalized], context);
+  if (error) {
+    throw new Error(error);
+  }
+  return [...actions, normalized];
+}
+
+export function validateActionSequence(actions, context) {
+  const normalizedActions = actions.map(normalizePlayerAction);
+  const error = actionLegalityError(normalizedActions, context);
+  if (error) {
+    throw new Error(error);
+  }
+  return true;
+}
+
 export function deletePlayerAction(actions, actionId) {
   return actions.filter((action) => action.id !== actionId);
 }
@@ -54,6 +78,32 @@ export function actionsForStreet(actions, street) {
   return actions.filter((action) => action.street === street);
 }
 
+export function forcedBlindActionTags({
+  smallBlindPlayer,
+  bigBlindPlayer,
+  smallBlind = DEFAULT_SMALL_BLIND,
+  bigBlind = DEFAULT_BIG_BLIND,
+} = {}) {
+  return [
+    smallBlindPlayer ? {
+      id: "forced:small-blind",
+      player: smallBlindPlayer,
+      street: "preflop",
+      type: "small-blind",
+      amount: smallBlind,
+      forced: true,
+    } : null,
+    bigBlindPlayer ? {
+      id: "forced:big-blind",
+      player: bigBlindPlayer,
+      street: "preflop",
+      type: "big-blind",
+      amount: bigBlind,
+      forced: true,
+    } : null,
+  ].filter(Boolean);
+}
+
 export function actionsVisibleThroughStreet(actions, street) {
   const targetIndex = STREET_INDEX[street];
   if (targetIndex == null) {
@@ -62,11 +112,19 @@ export function actionsVisibleThroughStreet(actions, street) {
   return actions.filter((action) => STREET_INDEX[action.street] <= targetIndex);
 }
 
-export function nextActionPlayer({ order, actions, street, foldedBeforeStreet = () => false, canAct = () => true }) {
+export function nextActionPlayer({
+  order,
+  actions,
+  street,
+  foldedBeforeStreet = () => false,
+  canAct = () => true,
+  smallBlind = DEFAULT_SMALL_BLIND,
+  bigBlind = DEFAULT_BIG_BLIND,
+}) {
   if (!Array.isArray(order) || order.length <= 1) {
     return null;
   }
-  if (bettingRoundIsClosed({ order, actions, street, foldedBeforeStreet, canAct })) {
+  if (bettingRoundIsClosed({ order, actions, street, foldedBeforeStreet, canAct, smallBlind, bigBlind })) {
     return null;
   }
   let activeOrder = order.filter((player) => !foldedBeforeStreet(player) && canAct(player));
@@ -81,7 +139,7 @@ export function nextActionPlayer({ order, actions, street, foldedBeforeStreet = 
     }
     if (action.type === "fold") {
       activeOrder = activeOrder.filter((player) => player !== action.player);
-      nextIndex = activeOrder.length ? Math.min(actorIndex, activeOrder.length - 1) : -1;
+      nextIndex = activeOrder.length ? actorIndex % activeOrder.length : -1;
     } else {
       nextIndex = activeOrder.length ? (actorIndex + 1) % activeOrder.length : -1;
     }
@@ -93,20 +151,31 @@ export function nextActionPlayer({ order, actions, street, foldedBeforeStreet = 
   return nextIndex >= 0 ? activeOrder[nextIndex] : null;
 }
 
-export function bettingRoundIsClosed({ order, actions, street, foldedBeforeStreet = () => false, canAct = () => true }) {
+export function bettingRoundIsClosed({
+  order,
+  actions,
+  street,
+  foldedBeforeStreet = () => false,
+  canAct = () => true,
+  smallBlind = DEFAULT_SMALL_BLIND,
+  bigBlind = DEFAULT_BIG_BLIND,
+}) {
   const streetActions = actionsForStreet(actions, street);
+  const state = bettingStateForStreet({
+    actions,
+    street,
+    order,
+    stacks: Object.fromEntries(order.map((player) => [player, Number.POSITIVE_INFINITY])),
+    smallBlindPlayer: street === "preflop" ? order[order.length - 2] : null,
+    bigBlindPlayer: street === "preflop" ? order[order.length - 1] : null,
+    smallBlind,
+    bigBlind,
+  });
   let activeOrder = order.filter((player) => !foldedBeforeStreet(player) && canAct(player));
   if (activeOrder.length <= 1) {
     return true;
   }
-  const actedSinceAggression = new Set();
   let hasVoluntaryAction = false;
-  let currentBet = street === "preflop" ? 1 : 0;
-  const committed = Object.fromEntries(activeOrder.map((player) => [player, 0]));
-  if (street === "preflop" && activeOrder.length >= 2) {
-    committed[activeOrder[activeOrder.length - 2]] = 0.5;
-    committed[activeOrder[activeOrder.length - 1]] = 1;
-  }
 
   for (const action of streetActions) {
     if (!activeOrder.includes(action.player)) {
@@ -115,29 +184,19 @@ export function bettingRoundIsClosed({ order, actions, street, foldedBeforeStree
     hasVoluntaryAction = true;
     if (action.type === "fold") {
       activeOrder = activeOrder.filter((player) => player !== action.player);
-      delete committed[action.player];
-      actedSinceAggression.delete(action.player);
       if (activeOrder.length <= 1) {
         return true;
       }
       continue;
     }
-    if (action.amount != null) {
-      committed[action.player] = (committed[action.player] || 0) + action.amount;
-    }
-    if (["bet", "raise", "all-in"].includes(action.type) && (committed[action.player] || 0) > currentBet) {
-      currentBet = committed[action.player];
-      actedSinceAggression.clear();
-    }
-    actedSinceAggression.add(action.player);
   }
 
   if (!hasVoluntaryAction) {
     return false;
   }
   return activeOrder.every((player) =>
-    actedSinceAggression.has(player) &&
-    Math.abs((committed[player] || 0) - currentBet) < 0.0001,
+    state.hasActedSinceFullRaise(player) &&
+    Math.abs((state.streetContribution(player) || 0) - state.currentBet) < 0.0001,
   );
 }
 
@@ -153,6 +212,63 @@ export function playerHasFoldedByStreet(actions, player, street) {
   );
 }
 
+export function livePlayersThroughStreet({ order, actions, street }) {
+  return order.filter((player) => !playerHasFoldedByStreet(actions, player, street));
+}
+
+export function actionablePlayersForStreet({
+  order,
+  actions,
+  street,
+  stacks,
+  smallBlindPlayer,
+  bigBlindPlayer,
+  smallBlind = DEFAULT_SMALL_BLIND,
+  bigBlind = DEFAULT_BIG_BLIND,
+}) {
+  const state = bettingStateForStreet({
+    actions,
+    street,
+    order,
+    stacks,
+    smallBlindPlayer,
+    bigBlindPlayer,
+    smallBlind,
+    bigBlind,
+  });
+  return order.filter((player) =>
+    !playerHasFoldedByStreet(actions, player, previousActionStreet(street)) &&
+    state.remainingStack(player) > 0
+  );
+}
+
+export function playerIsAllInByStreet({
+  order,
+  actions,
+  player,
+  street,
+  stacks,
+  smallBlindPlayer,
+  bigBlindPlayer,
+  smallBlind = DEFAULT_SMALL_BLIND,
+  bigBlind = DEFAULT_BIG_BLIND,
+}) {
+  if (playerHasFoldedByStreet(actions, player, street)) {
+    return false;
+  }
+  const state = bettingStateForStreet({
+    actions,
+    street,
+    order,
+    stacks,
+    smallBlindPlayer,
+    bigBlindPlayer,
+    smallBlind,
+    bigBlind,
+  });
+  return state.remainingStack(player) <= 0;
+}
+
 export function actionLabel(action) {
   if (!action) {
     return "";
@@ -163,6 +279,12 @@ export function actionLabel(action) {
 export function actionTagLabel(action, streetActions = []) {
   if (!action) {
     return "";
+  }
+  if (action.type === "small-blind") {
+    return `posts SB ${formatAmount(action.amount)}`;
+  }
+  if (action.type === "big-blind") {
+    return `posts BB ${formatAmount(action.amount)}`;
   }
   if (action.type === "bet" || action.type === "raise") {
     return aggressiveActionLabel(action, streetActions);
@@ -177,22 +299,30 @@ export function bettingStateForStreet({
   stacks,
   smallBlindPlayer,
   bigBlindPlayer,
-  smallBlind = 0.5,
-  bigBlind = 1,
+  smallBlind = DEFAULT_SMALL_BLIND,
+  bigBlind = DEFAULT_BIG_BLIND,
 }) {
   const invested = Object.fromEntries(order.map((player) => [player, 0]));
   const streetCommitted = Object.fromEntries(order.map((player) => [player, 0]));
   let currentBet = 0;
-  let lastRaiseSize = bigBlind;
-  if (street === "preflop") {
-    if (smallBlindPlayer && invested[smallBlindPlayer] != null) {
-      invested[smallBlindPlayer] += smallBlind;
+  let lastFullRaiseSize = bigBlind;
+  const actedSinceFullRaise = new Set();
+  const committedAtLastAction = Object.fromEntries(order.map((player) => [player, 0]));
+  if (smallBlindPlayer && invested[smallBlindPlayer] != null) {
+    invested[smallBlindPlayer] += smallBlind;
+    if (street === "preflop") {
       streetCommitted[smallBlindPlayer] += smallBlind;
+      committedAtLastAction[smallBlindPlayer] = smallBlind;
     }
-    if (bigBlindPlayer && invested[bigBlindPlayer] != null) {
-      invested[bigBlindPlayer] += bigBlind;
+  }
+  if (bigBlindPlayer && invested[bigBlindPlayer] != null) {
+    invested[bigBlindPlayer] += bigBlind;
+    if (street === "preflop") {
       streetCommitted[bigBlindPlayer] += bigBlind;
+      committedAtLastAction[bigBlindPlayer] = bigBlind;
     }
+  }
+  if (street === "preflop") {
     currentBet = bigBlind;
   }
 
@@ -208,26 +338,49 @@ export function bettingStateForStreet({
       }
     }
     if (action.street !== street || !["bet", "raise", "all-in"].includes(action.type) || action.amount == null) {
+      if (action.street === street) {
+        actedSinceFullRaise.add(action.player);
+        committedAtLastAction[action.player] = streetCommitted[action.player] || 0;
+      }
       continue;
     }
     const totalAfterAction = streetCommitted[action.player] || 0;
     if (totalAfterAction > currentBet) {
-      lastRaiseSize = Math.max(lastRaiseSize, totalAfterAction - previousCurrentBet);
+      const raiseSize = totalAfterAction - previousCurrentBet;
+      if (raiseSize >= lastFullRaiseSize - 0.0001) {
+        lastFullRaiseSize = raiseSize;
+        actedSinceFullRaise.clear();
+      }
       currentBet = totalAfterAction;
+    }
+    if (action.street === street) {
+      actedSinceFullRaise.add(action.player);
+      committedAtLastAction[action.player] = streetCommitted[action.player] || 0;
     }
   }
 
   return {
     currentBet,
-    lastRaiseSize,
+    lastRaiseSize: lastFullRaiseSize,
+    lastFullRaiseSize,
     invested,
     streetCommitted,
+    committedAtLastAction,
+    potSize: sumValues(invested),
+    totalInvested: (player) => invested[player] ?? 0,
+    streetContribution: (player) => streetCommitted[player] ?? 0,
+    hasActedSinceFullRaise: (player) => actedSinceFullRaise.has(player),
+    canRaise: (player) =>
+      !actedSinceFullRaise.has(player) ||
+      currentBet - (committedAtLastAction[player] ?? 0) >= lastFullRaiseSize - 0.0001,
     remainingStack: (player) => Math.max(0, (stacks[player] ?? 0) - (invested[player] ?? 0)),
     toCall: (player) => Math.max(0, currentBet - (streetCommitted[player] ?? 0)),
+    minRaiseTo: () => currentBet + lastFullRaiseSize,
+    minRaiseAmount: (player) => Math.max(0, currentBet - (streetCommitted[player] ?? 0)) + lastFullRaiseSize,
   };
 }
 
-export function legalActionPlan({ player, street, state, bigBlind = 1 }) {
+export function legalActionPlan({ player, street, state, bigBlind = DEFAULT_BIG_BLIND }) {
   if (!player) {
     return { actions: [], toCall: 0, remaining: 0, minBet: bigBlind, minRaiseAmount: bigBlind, maxAmount: 0 };
   }
@@ -238,23 +391,111 @@ export function legalActionPlan({ player, street, state, bigBlind = 1 }) {
   }
   if (toCall > 0) {
     const callAmount = Math.min(toCall, remaining);
-    const minRaiseAmount = Math.min(remaining, toCall + state.lastRaiseSize);
+    const minRaiseAmount = state.minRaiseAmount?.(player) ?? toCall + state.lastRaiseSize;
+    const canRaise = state.canRaise?.(player) ?? true;
+    const canMakeFullRaise = remaining >= minRaiseAmount - 0.0001;
     const actions = ["fold", "call"];
     if (remaining > toCall) {
-      actions.push("raise");
+      if (canRaise && canMakeFullRaise) {
+        actions.push("raise");
+      }
+      if (canRaise) {
+        actions.push("all-in");
+      }
     }
-    actions.push("all-in");
-    return { actions, toCall, callAmount, remaining, minBet: bigBlind, minRaiseAmount, maxAmount: remaining };
+    return {
+      actions,
+      toCall,
+      callAmount,
+      remaining,
+      minBet: bigBlind,
+      minRaiseAmount,
+      canRaise,
+      canMakeFullRaise,
+      maxAmount: remaining,
+    };
   }
+  const actions = ["check"];
+  if (remaining >= bigBlind - 0.0001) {
+    actions.push("bet");
+  }
+  actions.push("all-in");
   return {
-    actions: ["check", "bet", "all-in"],
+    actions,
     toCall,
     callAmount: 0,
     remaining,
-    minBet: Math.min(bigBlind, remaining),
-    minRaiseAmount: Math.min(bigBlind, remaining),
+    minBet: bigBlind,
+    minRaiseAmount: bigBlind,
     maxAmount: remaining,
   };
+}
+
+export function actionLegalityError(actions, {
+  orderForStreet,
+  stacks,
+  smallBlindPlayer,
+  bigBlindPlayer,
+  smallBlind = DEFAULT_SMALL_BLIND,
+  bigBlind = DEFAULT_BIG_BLIND,
+} = {}) {
+  if (typeof orderForStreet !== "function") {
+    return "action legality requires an orderForStreet function";
+  }
+  const previousActions = [];
+  let previousStreetIndex = -1;
+  for (const rawAction of actions) {
+    let action;
+    try {
+      action = normalizePlayerAction(rawAction);
+    } catch (error) {
+      return error.message;
+    }
+    const streetIndex = STREET_INDEX[action.street];
+    if (streetIndex < previousStreetIndex) {
+      return "actions cannot move backwards through streets";
+    }
+    previousStreetIndex = streetIndex;
+    const order = orderForStreet(action.street);
+    if (!Array.isArray(order) || !order.includes(action.player)) {
+      return `${action.player} is not seated in the ${action.street} action order`;
+    }
+    const state = bettingStateForStreet({
+      actions: previousActions,
+      street: action.street,
+      order,
+      stacks,
+      smallBlindPlayer,
+      bigBlindPlayer,
+      smallBlind,
+      bigBlind,
+    });
+    const actor = nextActionPlayer({
+      order,
+      actions: previousActions,
+      street: action.street,
+      foldedBeforeStreet: (player) => playerHasFoldedByStreet(previousActions, player, previousActionStreet(action.street)),
+      canAct: (player) => state.remainingStack(player) > 0,
+      smallBlind,
+      bigBlind,
+    });
+    if (!actor) {
+      return `${action.street} betting round is already closed`;
+    }
+    if (action.player !== actor) {
+      return `${action.player} cannot act now; expected ${actor}`;
+    }
+    const plan = legalActionPlan({ player: action.player, street: action.street, state, bigBlind });
+    if (!plan.actions.includes(action.type)) {
+      return `${action.type} is not legal for ${action.player} on ${action.street}`;
+    }
+    const amountError = actionAmountLegalityError(action, plan);
+    if (amountError) {
+      return amountError;
+    }
+    previousActions.push(action);
+  }
+  return null;
 }
 
 export function formatAmount(value) {
@@ -282,6 +523,43 @@ function aggressiveActionLabel(action, streetActions) {
     return "raises";
   }
   return `${actionIndex + 2}bets`;
+}
+
+function sumValues(record) {
+  return Object.values(record).reduce((total, value) => total + Number(value || 0), 0);
+}
+
+function actionAmountLegalityError(action, plan) {
+  if (action.type === "fold" || action.type === "check") {
+    return action.amount == null ? null : `${action.type} cannot have an amount`;
+  }
+  if (!Number.isFinite(action.amount)) {
+    return `${action.type} requires an amount`;
+  }
+  if (action.amount <= 0) {
+    return `${action.type} amount must be positive`;
+  }
+  if (action.amount > plan.maxAmount + 0.0001) {
+    return `${action.type} amount exceeds remaining stack`;
+  }
+  if (action.type === "call" && Math.abs(action.amount - plan.callAmount) > 0.0001) {
+    return `call amount must be ${formatAmount(plan.callAmount)}`;
+  }
+  if (action.type === "bet" && action.amount + 0.0001 < plan.minBet) {
+    return `bet amount must be at least ${formatAmount(plan.minBet)}`;
+  }
+  if (action.type === "raise" && action.amount + 0.0001 < plan.minRaiseAmount) {
+    return `raise amount must be at least ${formatAmount(plan.minRaiseAmount)}`;
+  }
+  if (action.type === "all-in" && Math.abs(action.amount - plan.remaining) > 0.0001) {
+    return `all-in amount must be ${formatAmount(plan.remaining)}`;
+  }
+  return null;
+}
+
+function previousActionStreet(street) {
+  const index = STREET_INDEX[street];
+  return index > 0 ? ACTION_STREETS[index - 1] : null;
 }
 
 function nextActionId(actions) {

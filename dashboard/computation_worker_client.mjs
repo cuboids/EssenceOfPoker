@@ -1,9 +1,15 @@
-export function createComputationWorker(assetVersion) {
+export function createComputationWorker(assetVersion, { onFailure = () => {} } = {}) {
   if (typeof Worker === "undefined") {
     return null;
   }
 
-  const worker = new Worker(`compute_worker.mjs?v=${assetVersion}`, { type: "module" });
+  let worker;
+  try {
+    worker = new Worker(`compute_worker.mjs?v=${assetVersion}`, { type: "module" });
+  } catch (error) {
+    reportWorkerFailure(onFailure, "startup", error);
+    return null;
+  }
   let nextId = 1;
   const pending = new Map();
 
@@ -23,6 +29,7 @@ export function createComputationWorker(assetVersion) {
 
   worker.addEventListener("error", (event) => {
     const error = new Error(event.message || "worker error");
+    reportWorkerFailure(onFailure, "worker", error);
     for (const request of pending.values()) {
       request.reject(error);
     }
@@ -33,14 +40,16 @@ export function createComputationWorker(assetVersion) {
     async computeWinShares(payload, fallback) {
       try {
         return await postWorkerRequest(worker, pending, nextId++, "computeWinShares", payload);
-      } catch {
+      } catch (error) {
+        reportWorkerFailure(onFailure, "computeWinShares", error);
         return fallback();
       }
     },
     async computeMultiwayEquities(payload, fallback) {
       try {
         return await postWorkerRequest(worker, pending, nextId++, "computeMultiwayEquities", payload);
-      } catch {
+      } catch (error) {
+        reportWorkerFailure(onFailure, "computeMultiwayEquities", error);
         return fallback();
       }
     },
@@ -53,6 +62,19 @@ export function createComputationWorker(assetVersion) {
       pending.clear();
     },
   };
+}
+
+function reportWorkerFailure(onFailure, type, error) {
+  try {
+    onFailure({
+      type,
+      message: error?.message || "worker computation failed",
+      error,
+      at: new Date().toISOString(),
+    });
+  } catch {
+    // Observability callbacks should never break the main-thread fallback path.
+  }
 }
 
 function postWorkerRequest(worker, pending, id, type, payload) {

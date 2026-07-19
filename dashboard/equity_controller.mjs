@@ -1,0 +1,481 @@
+import { fullDeck, cardId, sameCard } from "./cards.mjs";
+import { readApiCache, writeApiCache } from "./cache_client.mjs";
+import { cacheNamespace, winShareCacheKey as buildWinShareCacheKey } from "./cache_keys.mjs";
+import {
+  validateCompactPreflopMultiwayEquityCachePayload,
+  validateMultiwayEquityCachePayload,
+  validateWinShareCachePayload,
+} from "./cache_payload_contracts.mjs";
+import {
+  DEFAULT_MULTIWAY_EQUITY_SIMS,
+  computeMultiwayAggregateEquities,
+  computeMultiwayAggregateEquitiesChunked,
+  multiwayEquityCacheKey as buildMultiwayEquityCacheKey,
+  preflopMultiwayEquityCacheKey as buildPreflopMultiwayEquityCacheKey,
+  removeKnownCards,
+} from "./multiway_equity.mjs";
+import { inferPreflopRanges } from "./range_update.mjs";
+import { hashString } from "./session_rng.mjs";
+import {
+  computePreflopHeroWinSharesKernel,
+  computeRunoutWinShares,
+} from "./win_shares.mjs";
+
+export function createEquityController(deps) {
+  let aggregateEquityComputationScheduled = false;
+  let winShareComputationScheduled = false;
+
+  function resetWinShareState() {
+    deps.setCurrentWinShares(deps.handState() ? {} : deps.priorWinSharesByPage());
+    winShareComputationScheduled = false;
+    aggregateEquityComputationScheduled = false;
+  }
+
+  function ensureCurrentPageWinShares() {
+    const handState = deps.handState();
+    const activePage = deps.activePage();
+    if (!handState || activePage === "config" || deps.currentWinShares()[activePage] || winShareComputationScheduled) {
+      return;
+    }
+    if (deps.isOpponentPage(activePage) && !deps.villainShowdown()) {
+      return;
+    }
+
+    const guard = deps.createCurrentAsyncGuard({ purpose: "page-win-shares", page: activePage });
+    const page = activePage;
+    winShareComputationScheduled = true;
+    setTimeout(async () => {
+      winShareComputationScheduled = false;
+      if (!guard.isCurrent() || deps.currentWinShares()[page]) {
+        return;
+      }
+      const result = await cachedOrComputedWinSharesForPage(page, { guard });
+      if (!guard.isCurrent() || deps.currentWinShares()[page]) {
+        return;
+      }
+      deps.patchCurrentWinShares(page, (currentPageShares = {}) => ({
+        ...currentPageShares,
+        ...result,
+        aggregateShares: currentPageShares.aggregateShares,
+        aggregateEquityMeta: currentPageShares.aggregateEquityMeta,
+      }));
+      deps.updateCurrentStreetSnapshot();
+      deps.saveCurrentMomentCache();
+      if (deps.activePage() === page) {
+        deps.renderAssets();
+        if (deps.focusedAsset() && !deps.focusedAsset().isAggregate) {
+          deps.openFocus(deps.focusedAsset());
+        }
+      }
+    }, 20);
+  }
+
+  function ensureAggregateEquities() {
+    if (deps.activePage() === "config" || aggregateEquitiesAreReady() || aggregateEquityComputationScheduled) {
+      return;
+    }
+    if (!deps.handState()) {
+      applyAggregateEquities(priorMultiwayAggregateEquities());
+      return;
+    }
+
+    const guard = deps.createCurrentAsyncGuard({ purpose: "aggregate-equities", page: deps.activePage() });
+    aggregateEquityComputationScheduled = true;
+    setTimeout(async () => {
+      aggregateEquityComputationScheduled = false;
+      if (!guard.isCurrent() || aggregateEquitiesAreReady()) {
+        return;
+      }
+      const equities = await cachedOrComputedAggregateEquities({ guard });
+      if (!guard.isCurrent()) {
+        return;
+      }
+      applyAggregateEquities(equities);
+      deps.updateCurrentStreetSnapshot();
+      deps.saveCurrentMomentCache();
+      deps.renderAssets();
+      if (deps.focusedAsset()?.isAggregate) {
+        deps.openFocus(deps.focusedAsset());
+      }
+    }, 250);
+  }
+
+  function aggregateEquitiesAreReady() {
+    const currentWinShares = deps.currentWinShares();
+    const activeVillains = deps.activeVillainPageKeys();
+    if (currentWinShares.hero?.aggregateShares?.AGG == null || currentWinShares.hero?.aggregateShares?.RANGE_AGG == null) {
+      return false;
+    }
+    return deps.villainPageKeys().every((page) =>
+      currentWinShares[page]?.aggregateShares?.AGG != null ||
+      (!activeVillains.includes(page) && deps.isVillainPageFolded(page)),
+    );
+  }
+
+  function priorMultiwayAggregateEquities() {
+    const activeVillains = deps.activeVillainPageKeys();
+    const participantCount = activeVillains.length + 1;
+    const share = participantCount > 0 ? 1 / participantCount : 1;
+    return {
+      actual: {
+        equities: {
+          hero: share,
+          ...Object.fromEntries(activeVillains.map((page) => [page, share])),
+        },
+        nsims: 1,
+        exact: true,
+      },
+      range: {
+        equities: { range: share },
+        nsims: 1,
+        exact: true,
+      },
+    };
+  }
+
+  function applyAggregateEquities({ actual, range }) {
+    deps.patchCurrentWinShares("hero", (heroShares = {}) => ({
+      ...heroShares,
+      aggregateShares: {
+        ...(heroShares.aggregateShares || {}),
+        AGG: actual.equities.hero ?? 0,
+        RANGE_AGG: range.equities.range ?? 0,
+      },
+      aggregateEquityMeta: { actual, range },
+    }));
+
+    for (const page of deps.villainPageKeys()) {
+      deps.patchCurrentWinShares(page, (pageShares = {}) => ({
+        ...pageShares,
+        aggregateShares: {
+          ...(pageShares.aggregateShares || {}),
+          AGG: deps.isVillainPageFolded(page) ? 0 : (actual.equities[page] ?? 0),
+        },
+        aggregateEquityMeta: actual,
+      }));
+    }
+  }
+
+  async function cachedOrComputedAggregateEquities({ guard = null } = {}) {
+    const actual = await cachedOrComputedAggregateEquity("actual", { guard });
+    const range = deps.visiblePlayerActionsForCurrentStreet().length
+      ? await cachedOrComputedAggregateEquity("range", { guard })
+      : exactRangeAggregateEquity();
+    return { actual, range };
+  }
+
+  function exactRangeAggregateEquity() {
+    const participantCount = deps.activeVillainPageKeys().length + 1;
+    return {
+      equities: { range: participantCount > 0 ? 1 / participantCount : 1 },
+      nsims: 1,
+      exact: true,
+    };
+  }
+
+  async function cachedOrComputedAggregateEquity(matchup, { guard = null } = {}) {
+    const payload = multiwayEquityPayload(matchup);
+    if (matchup === "range" && participantHasNoLegalRange(payload.participants.find((participant) => participant.id === "range"), payload.knownBoard)) {
+      return {
+        equities: { range: 0 },
+        nsims: 0,
+        exact: true,
+      };
+    }
+    const cacheKey = buildAggregateEquityCacheKey(matchup, payload);
+    const usesCanonicalCache = preflopAggregateEquityUsesCanonicalCache(matchup, payload);
+    const cached = await readApiCache(cacheKey, {
+      validator: (candidate) => usesCanonicalCache
+        ? validateCompactPreflopMultiwayEquityCachePayload(candidate, { playerCount: payload.participants.length })
+        : validateMultiwayEquityCachePayload(candidate, { expectedParticipants: payload.participants.length }),
+    });
+    if (cached) {
+      return usesCanonicalCache
+        ? expandCachedPreflopAggregateEquity(cached, payload)
+        : cached;
+    }
+    const result = await computeMultiwayEquityAsync(payload);
+    writeApiCache(
+      cacheKey,
+      usesCanonicalCache
+        ? compactPreflopAggregateEquity(result, payload)
+        : result,
+      {
+        shouldWrite: () => !guard || guard.isCurrent(),
+        validator: (candidate) => usesCanonicalCache
+          ? validateCompactPreflopMultiwayEquityCachePayload(candidate, { playerCount: payload.participants.length })
+          : validateMultiwayEquityCachePayload(candidate, { expectedParticipants: payload.participants.length }),
+      },
+    );
+    return result;
+  }
+
+  function buildAggregateEquityCacheKey(matchup, payload) {
+    if (preflopAggregateEquityUsesCanonicalCache(matchup, payload)) {
+      return buildPreflopMultiwayEquityCacheKey({
+        namespace: cacheNamespace(deps.assetVersion()),
+        matchup,
+        heroCards: payload.participants.find((participant) => participant.id === "hero")?.knownHoleCards,
+        activePlayerCount: payload.participants.length,
+        nsims: payload.nsims,
+      });
+    }
+    return buildMultiwayEquityCacheKey({
+      namespace: cacheNamespace(deps.assetVersion()),
+      matchup,
+      participants: payload.participants,
+      knownBoard: payload.knownBoard,
+      deadCards: payload.deadCards,
+      foldedPages: deps.villainPageKeys().filter(deps.isVillainPageFolded),
+      nsims: payload.nsims,
+    });
+  }
+
+  function preflopAggregateEquityUsesCanonicalCache(matchup, payload) {
+    return (
+      matchup === "actual" &&
+      deps.handState()?.round === "preflop" &&
+      payload.knownBoard.length === 0 &&
+      !deps.visiblePlayerActionsForCurrentStreet().some((action) => action.street === "preflop") &&
+      payload.participants.some((participant) => participant.id === "hero" && participant.knownHoleCards?.length === 2)
+    );
+  }
+
+  function compactPreflopAggregateEquity(result, payload) {
+    const villainIds = payload.participants.map((participant) => participant.id).filter((id) => id !== "hero");
+    const villainShare = villainIds.length
+      ? villainIds.reduce((total, id) => total + (result.equities[id] || 0), 0) / villainIds.length
+      : 0;
+    return {
+      hero: result.equities.hero ?? 0,
+      villain: villainShare,
+      playerCount: payload.participants.length,
+      nsims: result.nsims,
+      exact: result.exact,
+    };
+  }
+
+  function expandCachedPreflopAggregateEquity(cached, payload) {
+    if (!Number.isFinite(cached?.hero) || !Number.isFinite(cached?.villain)) {
+      return cached;
+    }
+    return {
+      equities: Object.fromEntries(
+        payload.participants.map((participant) => [
+          participant.id,
+          participant.id === "hero" ? cached.hero : cached.villain,
+        ]),
+      ),
+      nsims: cached.nsims,
+      exact: cached.exact,
+    };
+  }
+
+  async function computeMultiwayEquityAsync(payload) {
+    if (!deps.computationWorker()) {
+      return computeMultiwayAggregateEquitiesChunked({
+        participants: payload.participants,
+        knownBoard: payload.knownBoard,
+        deck: payload.deck,
+        evaluateGradationFive: deps.evaluateGradationFive,
+        nsims: payload.nsims,
+        seed: payload.seed,
+      });
+    }
+    return deps.computationWorker().computeMultiwayEquities(payload, () => computeMultiwayEquity(payload));
+  }
+
+  function computeMultiwayEquity(payload) {
+    return computeMultiwayAggregateEquities({
+      participants: payload.participants,
+      knownBoard: payload.knownBoard,
+      deck: payload.deck,
+      evaluateGradationFive: deps.evaluateGradationFive,
+      nsims: payload.nsims,
+      seed: payload.seed,
+    });
+  }
+
+  function multiwayEquityPayload(matchup) {
+    const knownBoard = deps.currentBoardCards();
+    const handState = deps.handState();
+    const knownHeroCards = handState?.h1 && handState?.h2 ? [handState.h1, handState.h2] : [];
+    const inferredRanges = inferredRangesForEquity(matchup, knownHeroCards, knownBoard);
+    const participants = matchup === "range"
+      ? [
+        rangeParticipant("range", inferredRanges.hero),
+        ...deps.activeVillainPageKeys().map((page) => rangeParticipant(page, inferredRanges[page])),
+      ]
+      : [
+        { id: "hero", knownHoleCards: knownHeroCards.length === 2 ? knownHeroCards : undefined },
+        ...deps.activeVillainPageKeys().map((page) => rangeParticipant(page, inferredRanges[page])),
+      ];
+    const knownUnavailableCards = matchup === "range"
+      ? deps.knownCardsForHand()
+      : [...knownHeroCards, ...knownBoard];
+    const deck = removeKnownCards(fullDeck, knownUnavailableCards);
+    return {
+      bucketKeys: deps.dashboardData().bucketKeys,
+      bucketCount: deps.dashboardData().bucketCount,
+      participants,
+      knownBoard,
+      deadCards: knownUnavailableCards,
+      deck,
+      nsims: DEFAULT_MULTIWAY_EQUITY_SIMS,
+      seed: hashString(`${deps.assetVersion()}:${matchup}:${JSON.stringify(knownUnavailableCards.map(cardId))}:${deps.activeVillainPageKeys().join(",")}`),
+    };
+  }
+
+  function inferredRangesForEquity(matchup, knownHeroCards, knownBoard) {
+    const deadCards = matchup === "range" ? knownBoard : [...knownHeroCards, ...knownBoard];
+    const visibleActions = deps.visiblePlayerActionsForCurrentStreet();
+    if (!visibleActions.length) {
+      return {};
+    }
+    return inferPreflopRanges({
+      tableConfig: deps.tableConfig(),
+      actions: visibleActions,
+      deadCards,
+      knownBoard,
+      bucketCount: deps.dashboardData().bucketCount,
+      evaluateGradation: deps.evaluateGradation,
+      empiricalSpots: deps.empiricalSpotsForCurrentActions(),
+      playerProfiles: deps.playerProfilesForInference(),
+    });
+  }
+
+  function rangeParticipant(id, range) {
+    if (!range) {
+      return { id };
+    }
+    return {
+      id,
+      rangeKey: compactRangeKey(range),
+      rangeCombos: range.combos.map((combo) => ({
+        cards: combo.cards,
+        weight: combo.weight,
+      })),
+    };
+  }
+
+  function compactRangeKey(range) {
+    const historyKey = (range.history || [])
+      .map((entry) => `${entry.action.type}:${entry.action.amount ?? ""}:${entry.targetFrequency?.toFixed?.(4) ?? ""}`)
+      .join(",");
+    return `${range.position || ""}:${range.summary.weightedCombos.toFixed(3)}:${historyKey}`;
+  }
+
+  function participantHasNoLegalRange(participant, knownBoard = []) {
+    if (!Array.isArray(participant?.rangeCombos)) {
+      return false;
+    }
+    return !participant.rangeCombos.some((combo) =>
+      Number(combo.weight) > 0 &&
+      combo.cards?.length === 2 &&
+      combo.cards.every((card) => !knownBoard.some((boardCard) => sameCard(card, boardCard))),
+    );
+  }
+
+  async function cachedOrComputedWinSharesForPage(page, { guard = null } = {}) {
+    const cacheKey = winShareCacheKey(page);
+    const cached = await readApiCache(cacheKey, {
+      validator: (payload) => validateWinShareCachePayload(payload, { expectedShareCount: 21 }),
+    });
+    if (cached) {
+      return cached;
+    }
+    if (page === "hero" && deps.handState()?.round === "preflop") {
+      return { shares: {}, totalCombos: 0, pending: true };
+    }
+
+    const result = await computeWinSharesForPageAsync(page);
+    writeApiCache(cacheKey, result, {
+      shouldWrite: () => !guard || guard.isCurrent(),
+      validator: (payload) => validateWinShareCachePayload(payload, { expectedShareCount: 21 }),
+    });
+    return result;
+  }
+
+  function winShareCacheKey(page) {
+    const handState = deps.handState();
+    const state = deps.isOpponentPage(page) ? deps.currentKnownVillainStateForPage(page) : deps.currentKnownHeroState();
+    return buildWinShareCacheKey({
+      page,
+      state,
+      street: deps.villainShowdown() ? "showdown" : "hidden",
+      isHeroPreflop: page === "hero" && handState?.round === "preflop",
+      h1: handState?.h1,
+      h2: handState?.h2,
+      dataVersion: deps.assetVersion(),
+    });
+  }
+
+  async function computeWinSharesForPageAsync(page) {
+    const payload = winShareWorkerPayload(page);
+    if (!deps.computationWorker() || !payload) {
+      return computeWinSharesForPage(page);
+    }
+    return deps.computationWorker().computeWinShares(payload, () => computeWinSharesForPage(page));
+  }
+
+  function winShareWorkerPayload(page) {
+    const handState = deps.handState();
+    if (!handState) {
+      return null;
+    }
+    const isHeroPreflop = page === "hero" && handState.round === "preflop";
+    const portfolio = isHeroPreflop ? deps.dashboardData().portfolios.hero : deps.portfolioForCurvePage(page);
+    const knownState = deps.isOpponentPage(page) ? deps.currentKnownVillainStateForPage(page) : deps.currentKnownHeroState();
+    const remainingDeck = deps.isOpponentPage(page)
+      ? deps.remainingDeckForKnownCards(deps.allDealtCardsForDeck(page))
+      : deps.remainingDeckForKnownCards(deps.knownCardsForHand());
+    return {
+      kind: isHeroPreflop ? "heroPreflop" : "runout",
+      bucketKeys: deps.dashboardData().bucketKeys,
+      bucketCount: deps.dashboardData().bucketCount,
+      portfolio,
+      knownState,
+      remainingDeck,
+      suitMapEntries: Array.from(handState.suitMap.entries()),
+      handState: {
+        ...handState,
+        suitMapEntries: Array.from(handState.suitMap.entries()),
+      },
+    };
+  }
+
+  function computeWinSharesForPage(page) {
+    if (page === "hero" && deps.handState()?.round === "preflop") {
+      return computePreflopHeroWinShares();
+    }
+
+    const portfolio = deps.portfolioForCurvePage(page);
+    const knownState = deps.isOpponentPage(page) ? deps.currentKnownVillainStateForPage(page) : deps.currentKnownHeroState();
+    const remainingDeck = deps.isOpponentPage(page)
+      ? deps.remainingDeckForKnownCards(deps.allDealtCardsForDeck(page))
+      : deps.remainingDeckForKnownCards(deps.knownCardsForHand());
+    return computeRunoutWinShares({
+      portfolio,
+      knownState,
+      remainingDeck,
+      suitMap: deps.handState()?.suitMap || new Map(),
+      evaluateGradation: deps.evaluateGradation,
+    });
+  }
+
+  function computePreflopHeroWinShares() {
+    return computePreflopHeroWinSharesKernel({
+      portfolio: deps.dashboardData().portfolios.hero,
+      handState: deps.handState(),
+      remainingDeck: deps.remainingDeckForKnownCards(deps.knownCardsForHand()),
+      evaluateGradationFive: deps.evaluateGradationFive,
+    });
+  }
+
+  return {
+    aggregateEquitiesAreReady,
+    ensureAggregateEquities,
+    ensureCurrentPageWinShares,
+    resetWinShareState,
+  };
+}

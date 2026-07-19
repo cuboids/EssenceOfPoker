@@ -30,7 +30,8 @@ class BuildDashboardTests(unittest.TestCase):
             self.assertIn(f'window.ESSENCE_ASSET_VERSION = "{build_info["version"]}"', index_html)
             self.assertIn(f'app.js?v={manifest["assets"]["app.js"]}-{build_info["version"]}', index_html)
             self.assertIn(f'styles.css?v={manifest["assets"]["styles.css"]}-{build_info["version"]}', index_html)
-            self.assertIn(f'from "./cards.mjs?v={build_info["version"]}"', app_js)
+            self.assertIn('from "./cards.mjs"', app_js)
+            self.assertNotIn(f'?v={build_info["version"]}', app_js)
             self.assertNotIn("frontend-modules-2", index_html)
 
 

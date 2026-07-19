@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cardKey } from "../dashboard/cards.mjs";
+import { cardCompare, cardKey, sameCard } from "../dashboard/cards.mjs";
+import {
+  assertCanonicalHandModel,
+  dealFlopModel,
+  dealRiverModel,
+  dealTurnModel,
+  legacyHandState,
+  startPreflopModel,
+} from "../dashboard/hand_state.mjs";
 import { normalizeImportedHandForApp } from "../dashboard/import_normalizer.mjs";
+import { validateActionSequence } from "../dashboard/player_actions.mjs";
 import { parsePokerCraftHandHistory } from "../dashboard/pokercraft_parser.mjs";
+import { actionPositionsForStreet, positionPageKey } from "../dashboard/table_positions.mjs";
 
 const sample = `
 Poker Hand #RC123456: Hold'em No Limit ($0.50/$1.00) - 2026/07/19 09:02:11
@@ -88,4 +98,36 @@ test("import normalizer returns app-level table config and linear actions", () =
     { id: "i2", player: "villain:HJ", street: "preflop", type: "fold" },
     { id: "i3", player: "hero", street: "preflop", type: "call", amount: 3 },
   ]);
+});
+
+test("imported PokerCraft hand is equivalent to manual canonical app entry", () => {
+  const imported = normalizeImportedHandForApp(parsePokerCraftHandHistory(sample));
+  const villainCards = [
+    { rank: 4, suit: 1, id: 12 },
+    { rank: 6, suit: 2, id: 21 },
+  ].filter((candidate) =>
+    ![...imported.heroCards, ...imported.boardCards].some((known) => sameCard(candidate, known)),
+  );
+  let model = startPreflopModel(imported.heroCards, villainCards.sort(cardCompare));
+  model = dealFlopModel(model, imported.boardCards.slice(0, 3));
+  model = dealTurnModel(model, imported.boardCards[3]);
+  model = dealRiverModel(model, imported.boardCards[4]);
+
+  assert.equal(assertCanonicalHandModel(model), true);
+  const state = legacyHandState(model);
+  assert.deepEqual([state.h1, state.h2].map(cardKey), imported.heroCards.map(cardKey));
+  assert.deepEqual([...state.flop, state.turn, state.river].map(cardKey), imported.boardCards.map(cardKey));
+  assert.equal(validateActionSequence(imported.playerActions, {
+    orderForStreet: (street) => actionPositionsForStreet(imported.tableConfig, street).map((position) =>
+      position === imported.tableConfig.heroPosition ? "hero" : positionPageKey(position),
+    ),
+    stacks: Object.fromEntries(imported.tableConfig.positions.map((position) => [
+      position === imported.tableConfig.heroPosition ? "hero" : positionPageKey(position),
+      imported.tableConfig.playerStacks[position],
+    ])),
+    smallBlindPlayer: positionPageKey("SB"),
+    bigBlindPlayer: positionPageKey("BB"),
+    smallBlind: 0.5,
+    bigBlind: 1,
+  }), true);
 });

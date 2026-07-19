@@ -57,6 +57,15 @@
         <button class="control-button street-nav-button" id="previous-street-button" type="button" title="Previous street" aria-label="Previous street">‹</button>
         <button class="control-button street-nav-button" id="next-street-button" type="button" title="Next viewed street" aria-label="Next viewed street">›</button>
         <button class="control-button deal-button" id="new-round-button" type="button">New round</button>
+        <button class="control-button interesting-hand-button" id="interesting-hand-button" type="button" title="Random interesting hand" aria-label="Random interesting hand">
+          <span class="dice-icon" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+        </button>
         <div class="holding-display" id="holding-display" aria-live="polite">
           <span class="holding-label">Holding</span>
           <span class="holding-card">H<sub>1</sub></span>
@@ -64,6 +73,7 @@
         </div>
       </section>
       <section class="action-controls" id="action-controls" aria-live="polite"></section>
+      <section class="calibration-status" id="calibration-status" aria-live="polite"></section>
 
       <section class="legend" id="legend"></section>
       <section class="portfolio-tabs" id="portfolio-tabs" aria-label="Portfolio pages">

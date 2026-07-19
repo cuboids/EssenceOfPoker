@@ -27,20 +27,30 @@ export function emptyStreetSnapshot(handModel) {
     currentCurves: {},
     currentWinShares: {},
     playerActions: [],
+    showdownHoleCardsByPlayer: {},
   };
 }
 
-export function recordStreetSnapshot(handTimeline, handModel, round, playerActions = []) {
+export function recordStreetSnapshot(handTimeline, handModel, round, playerActions = [], showdownHoleCardsByPlayer = {}) {
   const viewedStreetIndex = streetIndexForRound(round);
   const nextTimeline = handTimeline.slice(0, viewedStreetIndex);
   nextTimeline[viewedStreetIndex] = {
     ...emptyStreetSnapshot(handModel),
     playerActions: clonePlayerActions(playerActions),
+    showdownHoleCardsByPlayer: cloneShowdownHoleCardsByPlayer(showdownHoleCardsByPlayer),
   };
   return { handTimeline: nextTimeline, viewedStreetIndex };
 }
 
-export function updateStreetSnapshot(handTimeline, viewedStreetIndex, handModel, currentCurves, currentWinShares, playerActions = []) {
+export function updateStreetSnapshot(
+  handTimeline,
+  viewedStreetIndex,
+  handModel,
+  currentCurves,
+  currentWinShares,
+  playerActions = [],
+  showdownHoleCardsByPlayer = {},
+) {
   if (viewedStreetIndex < 0) {
     return handTimeline;
   }
@@ -50,10 +60,17 @@ export function updateStreetSnapshot(handTimeline, viewedStreetIndex, handModel,
     currentCurves: cloneCacheObject(currentCurves),
     currentWinShares: cloneCacheObject(currentWinShares),
     playerActions: clonePlayerActions(playerActions),
+    showdownHoleCardsByPlayer: cloneShowdownHoleCardsByPlayer(showdownHoleCardsByPlayer),
   };
   return nextTimeline;
 }
 
 export function clonePlayerActions(actions = []) {
   return actions.map((action) => ({ ...action }));
+}
+
+export function cloneShowdownHoleCardsByPlayer(cardsByPlayer = {}) {
+  return Object.fromEntries(
+    Object.entries(cardsByPlayer).map(([player, cards]) => [player, cards.map((card) => ({ ...card }))]),
+  );
 }

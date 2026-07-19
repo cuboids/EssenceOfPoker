@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { cardCompare, fullDeck, sameCard } from "../dashboard/cards.mjs";
+import { validateCompactPreflopMultiwayEquityCachePayload } from "../dashboard/cache_payload_contracts.mjs";
 import { cacheNamespace, preflopClassKeyForCards } from "../dashboard/cache_keys.mjs";
 import { createHandEvaluator } from "../dashboard/evaluation.mjs";
 import {
@@ -24,6 +25,7 @@ const nsims = args.nsims == null ? DEFAULT_MULTIWAY_EQUITY_SIMS : Number(args.ns
 const players = (args.players || "2,3,4,5,6").split(",").map((value) => Number(value.trim()));
 const limit = args.limit == null ? null : Number(args.limit);
 const only = args.only ? new Set(String(args.only).split(",").map((value) => value.trim())) : null;
+const cacheWriteToken = args["cache-write-token"] || process.env.ESSENCE_CACHE_WRITE_TOKEN || "";
 
 if (!Number.isInteger(nsims) || nsims < 1) {
   throw new Error("--nsims must be a positive integer");
@@ -62,7 +64,7 @@ for (const playerCount of players) {
       nsims,
     });
     const hit = await readCache(key);
-    if (hit) {
+    if (validatedCacheHit(hit, playerCount)) {
       skipped += 1;
       logProgress("hit", playerCount, entry.classKey);
       continue;
@@ -70,6 +72,7 @@ for (const playerCount of players) {
 
     const before = Date.now();
     const result = compactResult(computeEquity(entry.first, entry.second, playerCount), playerCount);
+    validateCompactPreflopMultiwayEquityCachePayload(result, { playerCount });
     await writeCache(key, result);
     computed += 1;
     logProgress("computed", playerCount, entry.classKey, Date.now() - before);
@@ -142,15 +145,33 @@ async function readCache(key) {
   return response.ok ? response.json() : null;
 }
 
+function validatedCacheHit(payload, playerCount) {
+  if (!payload) {
+    return null;
+  }
+  try {
+    return validateCompactPreflopMultiwayEquityCachePayload(payload, { playerCount });
+  } catch {
+    return null;
+  }
+}
+
 async function writeCache(key, value) {
   const response = await fetch(`${apiBase}/api/cache/${encodeURIComponent(key)}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: cacheWriteHeaders(),
     body: JSON.stringify(value),
   });
   if (!response.ok) {
     throw new Error(`cache write failed for ${key}: ${response.status}`);
   }
+}
+
+function cacheWriteHeaders() {
+  return {
+    "Content-Type": "application/json",
+    ...(cacheWriteToken ? { "X-Essence-Cache-Token": cacheWriteToken } : {}),
+  };
 }
 
 function parseArgs(argv) {

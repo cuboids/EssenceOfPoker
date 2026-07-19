@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,7 +31,6 @@ def build_dashboard(
     shutil.copytree(source_root, output_root, ignore=shutil.ignore_patterns("__pycache__", ".DS_Store"))
 
     version = _manifest_version(_asset_hashes(output_root, include_index=False))
-    _rewrite_module_imports(output_root, version)
     assets = _asset_hashes(output_root, include_index=False)
     _rewrite_index(output_root / "index.html", version, assets)
     assets = _asset_hashes(output_root)
@@ -96,15 +94,6 @@ def _rewrite_index(index_path: Path, version: str, assets: dict[str, str]) -> No
         f'    <script>window.ESSENCE_ASSET_VERSION = "{version}";</script>\n    <script type="module" src="app.js',
     )
     index_path.write_text(html, encoding="utf-8")
-
-
-def _rewrite_module_imports(root: Path, version: str) -> None:
-    module_pattern = re.compile(r'(from\s+["\'])(\./[^"\']+\.mjs)(["\'])')
-    for path in sorted([*root.glob("*.js"), *root.glob("*.mjs")]):
-        source = path.read_text(encoding="utf-8")
-        rewritten = module_pattern.sub(rf"\1\2?v={version}\3", source)
-        if rewritten != source:
-            path.write_text(rewritten, encoding="utf-8")
 
 
 def main() -> None:

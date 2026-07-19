@@ -205,6 +205,35 @@ export function knownPhysicalCards(model, includeHiddenVillain = false) {
   ].filter(Boolean);
 }
 
+export function assertCanonicalHandModel(model) {
+  assertPhase(model, Object.values(HAND_PHASES));
+  assertCardSlots(model);
+  const physicals = physicalCardsFromModel(model);
+
+  if (model.phase === HAND_PHASES.EMPTY) {
+    assertEmptyStreetCards(model);
+    assertNoDuplicateModelCards(model);
+    return true;
+  }
+
+  if (model.phase === HAND_PHASES.PARTIAL_HOLDING) {
+    assertEmptyStreetCards(model);
+    assertSortedNullableHoleCards(model.hole);
+    assertNoDuplicateModelCards(model);
+    return true;
+  }
+
+  validateCardCount(model.hole.filter(Boolean), 2, "canonical holding");
+  validateCardCount(model.villain.filter(Boolean), 2, "canonical villain");
+  assertSortedCards(model.hole, "canonical holding");
+  assertSortedCards(model.villain, "canonical villain");
+  assertNoDuplicateModelCards(model);
+
+  const expected = buildModelFromPhysicals(model.phase, physicals);
+  assertEquivalentCanonicalModel(model, expected);
+  return true;
+}
+
 export function buildModelFromPhysicals(phase, physicals) {
   const hole = physicals.hole.filter(Boolean).map(rawCard).sort(cardCompare);
   validateCardCount(hole, 2, "holding");
@@ -340,6 +369,102 @@ function rejectDuplicates(cards, message) {
   if (hasDuplicateCards(cards)) {
     throw new Error(message);
   }
+}
+
+function assertCardSlots(model) {
+  if (!Array.isArray(model.hole) || model.hole.length !== 2) {
+    throw new Error("canonical model requires exactly two hole-card slots");
+  }
+  if (!Array.isArray(model.villain) || model.villain.length !== 2) {
+    throw new Error("canonical model requires exactly two villain-card slots");
+  }
+  if (!Array.isArray(model.flop)) {
+    throw new Error("canonical model requires a flop array");
+  }
+  if (!(model.suitMap instanceof Map)) {
+    throw new Error("canonical model requires a relative-suit map");
+  }
+  for (const card of [...model.hole, ...model.villain, ...model.flop, model.turn, model.river].filter(Boolean)) {
+    assertPhysicalCardShape(card);
+  }
+}
+
+function assertPhysicalCardShape(card) {
+  if (!Number.isInteger(card.rank) || card.rank < 1 || card.rank > 13) {
+    throw new Error("card rank must be an integer from 1 to 13");
+  }
+  if (!Number.isInteger(card.suit) || card.suit < 1 || card.suit > 4) {
+    throw new Error("card suit must be an integer from 1 to 4");
+  }
+  if (card.id !== cardId(card)) {
+    throw new Error("card id must match rank and suit");
+  }
+}
+
+function assertEmptyStreetCards(model) {
+  if (model.flop.length || model.turn || model.river) {
+    throw new Error("empty or partial-holding phases cannot contain board cards");
+  }
+}
+
+function assertNoDuplicateModelCards(model) {
+  const includeHiddenVillain = model.phase === HAND_PHASES.SHOWDOWN;
+  rejectDuplicates(knownPhysicalCards(model, includeHiddenVillain), "canonical model contains duplicate visible cards");
+  rejectDuplicates(
+    [
+      ...model.hole,
+      ...model.villain,
+      ...model.flop,
+      model.turn,
+      model.river,
+    ].filter(Boolean),
+    "canonical model contains duplicate physical cards",
+  );
+}
+
+function assertSortedNullableHoleCards(cards) {
+  const knownCards = cards.filter(Boolean);
+  assertSortedCards(knownCards, "pending holding");
+}
+
+function assertSortedCards(cards, label) {
+  for (let index = 1; index < cards.length; index += 1) {
+    if (cardCompare(cards[index - 1], cards[index]) > 0) {
+      throw new Error(`${label} cards must be sorted in canonical order`);
+    }
+  }
+}
+
+function assertEquivalentCanonicalModel(actual, expected) {
+  const comparableActual = comparableModel(actual);
+  const comparableExpected = comparableModel(expected);
+  if (JSON.stringify(comparableActual) !== JSON.stringify(comparableExpected)) {
+    throw new Error("hand model is not in canonical rank, suit, token, and relative-suit order");
+  }
+}
+
+function comparableModel(model) {
+  return {
+    phase: model.phase,
+    hole: model.hole.map(comparableCard),
+    villain: model.villain.map(comparableCard),
+    flop: model.flop.map(comparableCard),
+    turn: comparableCard(model.turn),
+    river: comparableCard(model.river),
+    suitMap: [...model.suitMap.entries()].sort(([first], [second]) => first - second),
+  };
+}
+
+function comparableCard(card) {
+  if (!card) {
+    return null;
+  }
+  return {
+    rank: card.rank,
+    suit: card.suit,
+    id: card.id,
+    relativeSuit: card.relativeSuit ?? null,
+  };
 }
 
 function freezeModel(model) {

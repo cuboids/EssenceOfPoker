@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { cardCompare, fullDeck, sameCard } from "../dashboard/cards.mjs";
+import { validateWinShareCachePayload } from "../dashboard/cache_payload_contracts.mjs";
 import { heroPreflopWinShareCacheKey, preflopClassKeyForCards } from "../dashboard/cache_keys.mjs";
 import { createHandEvaluator } from "../dashboard/evaluation.mjs";
 import { legacyHandState, startPreflopModel } from "../dashboard/hand_state.mjs";
@@ -21,6 +22,7 @@ const only = args.only ? new Set(String(args.only).split(",").map((value) => val
 const shardCount = args["shard-count"] == null ? 1 : Number(args["shard-count"]);
 const shardIndex = args["shard-index"] == null ? 0 : Number(args["shard-index"]);
 const cacheVersion = args["cache-version"] || process.env.ESSENCE_ASSET_VERSION || "development";
+const cacheWriteToken = args["cache-write-token"] || process.env.ESSENCE_CACHE_WRITE_TOKEN || "";
 
 if (limit != null && (!Number.isInteger(limit) || limit < 0)) {
   throw new Error("--limit must be a non-negative integer");
@@ -57,7 +59,7 @@ for (const [representativeIndex, entry] of representatives.entries()) {
   attempted += 1;
   const key = heroPreflopWinShareCacheKey(entry.first, entry.second, { dataVersion: cacheVersion });
   const hit = await readCache(key);
-  if (hit) {
+  if (validatedCacheHit(hit, validateWinShareCachePayload)) {
     skipped += 1;
     logProgress("hit", entry.classKey, key);
     continue;
@@ -65,6 +67,7 @@ for (const [representativeIndex, entry] of representatives.entries()) {
 
   const before = Date.now();
   const result = computePreflopWinShares(entry.first, entry.second);
+  validateWinShareCachePayload(result, { expectedShareCount: 21 });
   await writeCache(key, result);
   computed += 1;
   logProgress("computed", entry.classKey, key, Date.now() - before);
@@ -106,15 +109,33 @@ async function readCache(key) {
   return response.ok ? response.json() : null;
 }
 
+function validatedCacheHit(payload, validator) {
+  if (!payload) {
+    return null;
+  }
+  try {
+    return validator(payload, { expectedShareCount: 21 });
+  } catch {
+    return null;
+  }
+}
+
 async function writeCache(key, value) {
   const response = await fetch(`${apiBase}/api/cache/${encodeURIComponent(key)}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: cacheWriteHeaders(),
     body: JSON.stringify(value),
   });
   if (!response.ok) {
     throw new Error(`cache write failed for ${key}: ${response.status}`);
   }
+}
+
+function cacheWriteHeaders() {
+  return {
+    "Content-Type": "application/json",
+    ...(cacheWriteToken ? { "X-Essence-Cache-Token": cacheWriteToken } : {}),
+  };
 }
 
 function parseArgs(argv) {

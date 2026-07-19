@@ -1,9 +1,9 @@
 import * as HandModel from "./hand_state.mjs";
+import { handViewFromModel } from "./hand_view.mjs";
+import { readPersistedUiState } from "./local_storage_schema.mjs";
 
 export function createAppState({ assetVersion, localStorageRef = globalThis.localStorage } = {}) {
-  const storedPlayerCount = Number(localStorageRef?.getItem("essence-player-count") || 2);
-  const storedHeroPosition = localStorageRef?.getItem("essence-hero-position") || null;
-  const storedPlayerStacks = parseStoredObject(localStorageRef?.getItem("essence-player-stacks"));
+  const persistedUi = readPersistedUiState(localStorageRef);
   return {
     assetVersion: assetVersion || Date.now(),
     data: {
@@ -20,7 +20,7 @@ export function createAppState({ assetVersion, localStorageRef = globalThis.loca
     },
     hand: {
       model: HandModel.emptyHandModel(),
-      legacy: null,
+      view: null,
       timeline: [],
       viewedStreetIndex: -1,
       villainShowdown: false,
@@ -33,6 +33,7 @@ export function createAppState({ assetVersion, localStorageRef = globalThis.loca
       villainMirrorScheduled: false,
       winShareScheduled: false,
       worker: null,
+      workerFailures: [],
     },
     ui: {
       focusedAsset: null,
@@ -40,32 +41,22 @@ export function createAppState({ assetVersion, localStorageRef = globalThis.loca
       editingCardToken: null,
       cardEditError: "",
       chartMode: "bell",
-      useDarkTheme: localStorageRef?.getItem("essence-theme") === "dark",
-      hideInactiveAssets: localStorageRef?.getItem("essence-hide-inactive-assets") === "true",
+      useDarkTheme: persistedUi.useDarkTheme,
+      hideInactiveAssets: persistedUi.hideInactiveAssets,
       tableConfig: {
-        playerCount: storedPlayerCount,
-        heroPosition: storedHeroPosition,
+        playerCount: persistedUi.tableConfig.playerCount,
+        heroPosition: persistedUi.tableConfig.heroPosition,
         foldedVillainPositions: [],
-        playerStacks: storedPlayerStacks,
+        playerStacks: persistedUi.tableConfig.playerStacks,
       },
+      calibrationContext: persistedUi.calibrationContext,
+      playerProfiles: persistedUi.playerProfiles,
     },
   };
 }
 
-function parseStoredObject(rawValue) {
-  if (!rawValue) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(rawValue);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
 export function initializeHandState(state) {
-  state.hand.legacy = HandModel.legacyHandState(state.hand.model);
+  state.hand.view = handViewFromModel(state.hand.model);
   state.hand.villainShowdown = HandModel.isShowdown(state.hand.model);
   return state;
 }

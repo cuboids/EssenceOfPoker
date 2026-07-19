@@ -91,8 +91,11 @@ export function weightedRangeAssetCurves({
   seed = 1,
 }) {
   const weightedCombos = validWeightedCombos(range, knownBoardState);
-  if (!weightedCombos.length || nsims <= 0) {
-    return null;
+  if (!weightedCombos.length) {
+    throw new Error(`Weighted range for ${range?.player || "range"} has no legal positive-weight combos`);
+  }
+  if (nsims <= 0) {
+    throw new Error("Weighted range curves require at least one simulation");
   }
 
   const countsByCode = Object.fromEntries(

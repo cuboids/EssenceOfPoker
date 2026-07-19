@@ -1,101 +1,95 @@
 import * as HandModel from "./hand_state.mjs";
+import { createHandFlowController } from "./hand_flow_controller.mjs";
 import {
-  POSITION_TOKENS,
   categoryDescriptions,
   categoryLabels,
   categoryOrder,
-  largeChart,
-  smallChart,
 } from "./app_config.mjs";
 import { createAppState, initializeHandState } from "./app_state.mjs";
 import {
   aggregateIsActive,
   ceilingForOtherAssetsInPortfolio,
-  concreteAssetCount,
   concreteAssetIsActive,
-  isLockedCurve,
 } from "./asset_status.mjs";
+import { createAssetBoardRenderer } from "./asset_board_renderer.mjs";
+import {
+  buildAsyncSnapshotKey,
+  createAsyncStateGuard,
+} from "./async_state_guard.mjs";
 import {
   cardCompare,
   cardId,
   fullDeck,
-  hasDuplicateCards,
-  parsePhysicalCard,
-  rankSymbol,
-  rawCard,
   sameCard,
-  suitSymbol,
 } from "./cards.mjs";
-import { readApiCache, writeApiCache } from "./cache_client.mjs";
-import { cacheNamespace, preflopClassKeyForCards, winShareCacheKey as buildWinShareCacheKey } from "./cache_keys.mjs";
-import { readPreflopAggregateClass, readPreflopHiddenVillainClass, readPreflopPrimaryClass } from "./data_client.mjs";
+import { preflopClassKeyForCards } from "./cache_keys.mjs";
+import {
+  bindDashboardControls,
+} from "./controllers/dashboard_controls.mjs";
+import { createConfigPageController } from "./config_page_controller.mjs";
+import { createRangeShowdownPanel } from "./range_showdown_panel.mjs";
+import {
+  readEmpiricalSpot,
+  readHealth,
+  readPreflopAggregateClass,
+  readPreflopHiddenVillainClass,
+  readPreflopPrimaryClass,
+} from "./data_client.mjs";
 import { createHandEvaluator } from "./evaluation.mjs";
+import { createEquityController } from "./equity_controller.mjs";
 import {
   curveFromTrimmedCounts,
   curvesForKnownAssets as curvesForKnownAssetsKernel,
 } from "./curve_distributions.mjs";
 import {
   validateDashboardData,
-  validatePreflopAggregateClassPayload,
   validatePreflopHandEquityCache,
-  validatePreflopHiddenVillainClassPayload,
-  validatePreflopPrimaryClassPayload,
   validatePriorWinShares,
 } from "./data_contracts.mjs";
 import {
-  NORMAL_EDGE,
-  axisMaximum,
-  axisMinimum,
-  bandEndX,
-  bandStartX,
-  bucketEndX,
-  ceilingX,
-  chartDomain,
-  clamp,
-  normalCdf,
-  normalPdf,
-  normalQuantileClamped,
-  normalizeX,
-  x,
-  y,
-} from "./charts.mjs";
+  currentConcreteAssetCount as currentConcreteAssetCountForPortfolio,
+  normalizedPortfolios as normalizedPortfoliosForConfig,
+  priorAggregateCurve as priorAggregateCurveForData,
+  priorCurveForModel as priorCurveForPortfolioModel,
+  priorCurvesByPage as priorCurvesByPortfolioPage,
+  priorNaturalXMapsByPage,
+} from "./portfolio_model.mjs";
 import {
-  curveFromCounts as curveFromCountsPure,
-} from "./portfolio_curves.mjs";
+  createSeededRng,
+  drawCardsFromDeck,
+  hashString,
+  sessionSeed,
+} from "./session_rng.mjs";
 import {
-  DEFAULT_MULTIWAY_EQUITY_SIMS,
-  computeMultiwayAggregateEquities,
-  computeMultiwayAggregateEquitiesChunked,
-  multiwayEquityCacheKey as buildMultiwayEquityCacheKey,
-  preflopMultiwayEquityCacheKey as buildPreflopMultiwayEquityCacheKey,
-  removeKnownCards,
-} from "./multiway_equity.mjs";
+  actionHelpers,
+  actionPanelViewModel,
+  renderPlayerActionsHtml,
+} from "./action_panel.mjs";
 import {
-  computePreflopHeroWinSharesKernel,
-  computeRunoutWinShares,
-} from "./win_shares.mjs";
-import { winShareSignal } from "./win_signal.mjs";
-import {
-  ACTION_STREETS,
   actionsForStreet,
-  actionsVisibleThroughStreet,
-  actionTagLabel,
-  appendPlayerAction,
-  bettingStateForStreet,
+  appendLegalPlayerAction,
   deletePlayerAction,
   formatAmount,
-  legalActionPlan,
-  nextActionPlayer,
   playerHasFoldedByStreet,
 } from "./player_actions.mjs";
 import {
-  cloneCacheObject,
-  clonePlayerActions,
-  cloneHandModel,
-  recordStreetSnapshot,
-  streetIndexForRound,
-  updateStreetSnapshot,
-} from "./street_snapshots.mjs";
+  actionCountBeforeStreet as visibleSnapshotActionCountBeforeStreet,
+  actionCountsForStreet as visibleSnapshotActionCountsForStreet,
+  actionCountThroughStreet as visibleSnapshotActionCountThroughStreet,
+  visibleActionsForStreet as visibleSnapshotActionsForStreet,
+} from "./visible_hand_snapshot.mjs";
+import { createPreflopClassStore } from "./stores/preflop_class_store.mjs";
+import {
+  createEmpiricalSpotStore,
+  empiricalStatusLabel,
+} from "./stores/empirical_spot_store.mjs";
+import {
+  persistCalibrationContext,
+  persistHideInactiveAssets,
+  persistPlayerProfiles,
+  persistTableConfig as persistTableConfigStorage,
+  persistTheme,
+} from "./local_storage_schema.mjs";
 import {
   DEFAULT_RANGE_CURVE_SIMS,
   curvesFromPreflopHiddenVillainCache,
@@ -104,19 +98,12 @@ import {
 } from "./villain_range.mjs";
 import { createComputationWorker } from "./computation_worker_client.mjs";
 import { inferPreflopRanges } from "./range_update.mjs";
+import { empiricalSpotRequest } from "./empirical_range_model.mjs";
 import {
-  cardHtml,
-  cardText,
-  compactTokenHtml,
-  compactTokenText,
   escapeHtml,
-  formatCombos,
   formatPercent,
 } from "./ui.mjs";
 import {
-  PLAYER_COUNTS,
-  TABLE_POSITIONS,
-  actionPositionsForStreet,
   isVillainPage,
   nextHeroPosition,
   normalizeTableConfig,
@@ -127,6 +114,7 @@ import {
 } from "./table_positions.mjs";
 
 const ASSET_VERSION = window.ESSENCE_ASSET_VERSION || Date.now();
+const sessionRng = createSeededRng(sessionSeed());
 const appState = initializeHandState(createAppState({ assetVersion: ASSET_VERSION }));
 
 let dashboardData;
@@ -136,35 +124,226 @@ let priorXByGradation;
 let aggregatePriorXByGradation;
 let priorNaturalXMaps = {};
 let categoryByGradation;
-let preflopAggregateClasses = appState.data.preflopAggregateClasses;
-let preflopHiddenVillainClasses = appState.data.preflopHiddenVillainClasses;
-let preflopPrimaryClasses = {};
-let preflopClassDataLoadKey = "";
-let preflopClassDataLoadPromise = null;
-const unavailablePreflopClassKeys = new Set();
+const preflopClassStore = createPreflopClassStore({
+  aggregateClasses: appState.data.preflopAggregateClasses,
+  hiddenVillainClasses: appState.data.preflopHiddenVillainClasses,
+  primaryClasses: {},
+  getBucketCount: () => dashboardData.bucketCount,
+  readAggregateClass: readPreflopAggregateClass,
+  readHiddenVillainClass: readPreflopHiddenVillainClass,
+  readPrimaryClass: readPreflopPrimaryClass,
+  onPartLoaded: refreshAfterPreflopClassPart,
+});
+let preflopAggregateClasses = preflopClassStore.aggregateClasses;
+let preflopHiddenVillainClasses = preflopClassStore.hiddenVillainClasses;
+let preflopPrimaryClasses = preflopClassStore.primaryClasses;
 let preflopHandEquityCache;
 let handModel = appState.hand.model;
-let handState = appState.hand.legacy;
+let handState = appState.hand.view;
 let handTimeline = appState.hand.timeline;
 let playerActions = appState.hand.playerActions;
 let viewedStreetIndex = appState.hand.viewedStreetIndex;
+let viewedActionCount = null;
+let visibleHandSnapshot = null;
 let currentCurves = appState.computed.curves;
 let currentWinShares = appState.computed.winShares;
-let aggregateEquityComputationScheduled = false;
+let actionMomentCache = new Map();
+let workerFailures = appState.computed.workerFailures;
 let focusedAsset = appState.ui.focusedAsset;
 let activePage = appState.ui.activePage;
 let villainShowdown = appState.hand.villainShowdown;
+let showdownHoleCardsByPlayer = {};
 let editingCardToken = appState.ui.editingCardToken;
 let cardEditError = appState.ui.cardEditError;
 let curveComputationToken = appState.computed.curveToken;
 let villainMirrorComputationScheduled = appState.computed.villainMirrorScheduled;
-let winShareComputationScheduled = appState.computed.winShareScheduled;
 let computationWorker = null;
 let chartMode = appState.ui.chartMode;
 let useDarkTheme = appState.ui.useDarkTheme;
 let hideInactiveAssets = appState.ui.hideInactiveAssets;
 let tableConfig = normalizeTableConfig(appState.ui.tableConfig);
+let calibrationContext = appState.ui.calibrationContext || { stakeBucket: "micro", yearBucket: "2009-2010" };
+let playerProfiles = appState.ui.playerProfiles || {};
 let pendingSizingActionType = null;
+const empiricalSpotStore = createEmpiricalSpotStore({
+  readSpot: readEmpiricalSpot,
+  readHealth,
+  requestForAction: empiricalRequestForPlayerAction,
+  onLoadingChange: () => {
+    renderCalibrationStatus();
+    renderHoldingDisplay();
+  },
+  onUpdated: () => {
+    invalidateRangeDerivedState();
+    renderCalibrationStatus();
+    renderHoldingDisplay();
+    renderAssets();
+  },
+});
+const assetBoard = createAssetBoardRenderer({
+  documentRef: document,
+  activePage: () => activePage,
+  aggregateMatchupTitle,
+  aggregatePriorXByGradation: () => aggregatePriorXByGradation,
+  cachedWinShareForAsset,
+  cardForToken: (token) => cardForTokenOnPage(token, activePage),
+  categoryDescriptions,
+  categoryForGradation,
+  categoryLabels,
+  ceilingForOtherAssets,
+  chartMode: () => chartMode,
+  curveForAsset,
+  dashboardData: () => dashboardData,
+  editingCardToken: () => editingCardToken,
+  handState: () => handState,
+  isAggregateMatchup,
+  isAssetCurrentlyActive,
+  isCategoryAggregate,
+  isOpponentPage,
+  preflopActionDerivedRangesActive,
+  priorNaturalXMaps: () => priorNaturalXMaps,
+  priorXByGradation: () => priorXByGradation,
+  setFocusedAsset: (asset) => { focusedAsset = asset; },
+  showdownHoleCardsForPlayer,
+  villainShowdown: () => villainShowdown,
+  winShareForAsset,
+});
+const configPage = createConfigPageController({
+  activePage: () => activePage,
+  calibrationContext: () => calibrationContext,
+  documentRef: document,
+  hideInactiveAssets: () => hideInactiveAssets,
+  playerProfiles: () => playerProfiles,
+  renderAssets,
+  tableConfig: () => tableConfig,
+  toggleHideInactiveAssets,
+  updateCalibrationContext,
+  updatePlayerProfiles,
+  updateTableConfig,
+  villainPageKeys,
+});
+const equityController = createEquityController({
+  activePage: () => activePage,
+  activeVillainPageKeys,
+  allDealtCardsForDeck,
+  assetVersion: () => ASSET_VERSION,
+  computationWorker: () => computationWorker,
+  createCurrentAsyncGuard,
+  currentBoardCards,
+  currentKnownHeroState,
+  currentKnownVillainStateForPage,
+  currentWinShares: () => currentWinShares,
+  dashboardData: () => dashboardData,
+  empiricalSpotsForCurrentActions,
+  evaluateGradation,
+  evaluateGradationFive,
+  focusedAsset: () => focusedAsset,
+  handState: () => handState,
+  isOpponentPage,
+  isVillainPageFolded,
+  knownCardsForHand,
+  openFocus,
+  patchCurrentWinShares,
+  playerProfilesForInference,
+  portfolioForCurvePage,
+  priorWinSharesByPage,
+  remainingDeckForKnownCards,
+  renderAssets,
+  saveCurrentMomentCache,
+  setCurrentWinShares: (shares) => { currentWinShares = shares; },
+  tableConfig: () => tableConfig,
+  updateCurrentStreetSnapshot,
+  villainPageKeys,
+  villainShowdown: () => villainShowdown,
+  visiblePlayerActionsForCurrentStreet,
+});
+const rangeShowdownPanel = createRangeShowdownPanel({
+  actionPlayerLabel,
+  actionPlayerOrder,
+  categoryForGradation,
+  currentBoardCards,
+  dashboardData: () => dashboardData,
+  documentRef: document,
+  empiricalEvidenceForRange,
+  estimatedRangeForPage,
+  evaluateGradationFive,
+  handState: () => handState,
+  playerHasFoldedByStreet,
+  playerIdForPosition,
+  playerStacksById,
+  setFocusedAsset: (asset) => { focusedAsset = asset; },
+  showdownHoleCardsForPlayer,
+  tableConfig: () => tableConfig,
+  visiblePlayerActionsForCurrentStreet,
+});
+const handFlow = createHandFlowController({
+  activePage: () => activePage,
+  actionMomentCache: () => actionMomentCache,
+  advanceHeroPositionForNewHand,
+  allDealtCardsForDeck,
+  cardForTokenOnPage,
+  currentCurves: () => currentCurves,
+  currentViewedActionCount,
+  currentWinShares: () => currentWinShares,
+  dashboardData: () => dashboardData,
+  dealCardsFromDeck,
+  dealHoleCards,
+  documentRef: document,
+  ensureCurrentPageCurves,
+  focusedAsset: () => focusedAsset,
+  handModel: () => handModel,
+  handState: () => handState,
+  handTimeline: () => handTimeline,
+  isOpponentPage,
+  openFocus,
+  persistTableConfig,
+  playerActions: () => playerActions,
+  priorCurvesByPage,
+  priorNaturalXMapsByPage,
+  queuePreflopClassDataLoad,
+  rebuildDashboardPortfolios,
+  remainingDeckForKnownCards,
+  renderAssets,
+  renderCachedStreet,
+  renderCalibrationStatus,
+  renderHoldingDisplay,
+  renderLoadingAssets,
+  renderPortfolioTabs,
+  resetWinShareState,
+  scheduleCurrentPageCurves,
+  setActionMomentCache: (value) => { actionMomentCache = value; },
+  setActivePage: (value) => { activePage = value; },
+  setCardEditError: (value) => { cardEditError = value; },
+  setCurrentCurves: (value) => { currentCurves = value; },
+  setCurrentWinShares: (value) => { currentWinShares = value; },
+  setEditingCardToken: (value) => { editingCardToken = value; },
+  setFocusedAsset: (value) => { focusedAsset = value; },
+  setHandModel: (value) => { handModel = value; },
+  setHandState: (value) => { handState = value; },
+  setHandTimeline: (value) => { handTimeline = value; },
+  setPlayerActions: (value) => { playerActions = value; },
+  setPriorNaturalXMaps: (value) => { priorNaturalXMaps = value; },
+  setShowdownHoleCardsByPlayer: (value) => { showdownHoleCardsByPlayer = value; },
+  setTableConfig: (value) => { tableConfig = value; },
+  setViewedActionCount: (value) => { viewedActionCount = value; },
+  setViewedStreetIndex: (value) => { viewedStreetIndex = value; },
+  setVillainMirrorComputationScheduled: (value) => { villainMirrorComputationScheduled = value; },
+  setVillainShowdown: (value) => { villainShowdown = value; },
+  setVisibleHandSnapshot: (value) => { visibleHandSnapshot = value; },
+  shouldDeferCurrentPageCurves,
+  shouldDeferPreflopClassData,
+  showdownHoleCardsByPlayer: () => showdownHoleCardsByPlayer,
+  showdownHoleCardsForPlayer,
+  updateLegend,
+  updatePageTabs,
+  updateRoundButton,
+  updateStreetNavButtons,
+  villainShowdown: () => villainShowdown,
+  viewedActionCount: () => viewedActionCount,
+  viewedStreetIndex: () => viewedStreetIndex,
+  bumpCurveComputationToken: () => { curveComputationToken += 1; },
+  normalizeTableConfig,
+});
 
 Promise.all([
   fetch(`data/prior_portfolio.json?v=${ASSET_VERSION}`).then((response) => response.json()),
@@ -178,11 +357,12 @@ Promise.all([
     preflopHandEquityCache = handEquityCache;
     bucketLookup = new Map(data.bucketKeys.map((bucket) => [bucket.key, bucket.gradation]));
     handEvaluator = createHandEvaluator(bucketLookup, data.bucketCount);
-    computationWorker = createComputationWorker(ASSET_VERSION);
+    computationWorker = createComputationWorker(ASSET_VERSION, { onFailure: recordWorkerFailure });
     priorXByGradation = new Map(data.curve.map((point) => [point.gradation, point.x]));
     aggregatePriorXByGradation = aggregatePriorXMap(data);
     data.priorWinShares = priorWinShares;
     renderDashboard(data);
+    hydrateEmpiricalCalibrationHealth();
   });
 
 function aggregatePriorXMap(data) {
@@ -210,20 +390,23 @@ function renderDashboard(data) {
   document.getElementById("asset-count").textContent = currentConcreteAssetCount();
   document.getElementById("bucket-count").textContent = data.bucketCount.toLocaleString();
   document.getElementById("combo-count").textContent = data.totalCombos.toLocaleString();
-  document.getElementById("new-hand-button").addEventListener("click", resetNewHand);
-  document.getElementById("previous-street-button").addEventListener("click", () => navigateStreet(-1));
-  document.getElementById("next-street-button").addEventListener("click", () => navigateStreet(1));
-  document.getElementById("new-round-button").addEventListener("click", dealNewRound);
-  document.getElementById("showdown-button").addEventListener("click", revealVillain);
-  document.getElementById("holding-display").addEventListener("click", handleCardEditClick);
-  document.getElementById("action-controls").addEventListener("click", handlePlayerActionClick);
-  document.getElementById("action-controls").addEventListener("change", handleRaisePercentChange);
-  document.getElementById("config-page-button").addEventListener("click", () => switchPage("config"));
+  bindDashboardControls({
+    documentRef: document,
+    handlers: {
+      resetNewHand,
+      navigateStreet,
+      dealNewRound,
+      loadRandomInterestingHand,
+      revealVillain,
+      handleCardEditClick,
+      handlePlayerActionClick,
+      handleRaisePercentChange,
+      switchPage,
+      changeChartMode,
+      toggleThemeMode,
+    },
+  });
   renderPortfolioTabs();
-  for (const input of document.querySelectorAll('input[name="chart-mode"]')) {
-    input.addEventListener("change", changeChartMode);
-  }
-  document.getElementById("theme-toggle").addEventListener("change", toggleThemeMode);
 
   applyThemeMode();
   renderHoldingDisplay();
@@ -233,63 +416,7 @@ function renderDashboard(data) {
   updateLegend();
   renderFocusLayer();
   renderAssets();
-}
-
-function normalizedPortfolios(data) {
-  const heroAssets = data.portfolios?.hero?.assets || data.assets;
-  const heroAggregates = namedAggregateCards(
-    data.portfolios?.hero?.aggregates || defaultAggregates(heroAssets),
-    `Hero (${positionDisplayName(tableConfig.heroPosition)})`,
-  );
-  const villainAssets = data.portfolios?.villain?.assets || heroAssets.map((asset) => ({
-    ...asset,
-    name: asset.name.replaceAll("H_1", "V_1").replaceAll("H_2", "V_2"),
-    positions: asset.positions?.map((position) =>
-      position.replace("hole_1", "villain_1").replace("hole_2", "villain_2"),
-    ),
-  }));
-  const villainAggregates = data.portfolios?.villain?.aggregates || defaultAggregates(villainAssets);
-  const portfolios = {
-    hero: { name: "Hero", assets: heroAssets, aggregates: heroAggregates },
-  };
-  for (const position of villainPositionsForConfig(tableConfig)) {
-    portfolios[positionPageKey(position)] = {
-      name: position,
-      position,
-      assets: villainAssets,
-      aggregates: namedAggregateCards(villainAggregates, positionDisplayName(position)),
-    };
-  }
-  return portfolios;
-}
-
-function namedAggregateCards(aggregates, primaryAggregateName) {
-  return aggregates.map((aggregate) =>
-    aggregate.code === "AGG"
-      ? { ...aggregate, name: primaryAggregateName }
-      : aggregate,
-  );
-}
-
-function defaultAggregates(assets) {
-  return [
-    aggregateSpec("AGG", "Hand Aggregate", "AGGREGATE", assets),
-    aggregateSpec("AGG_BOTH", "Both hole cards aggregate", "CARD_1_PLUS_CARD_2", assets.filter((asset) => asset.category === "CARD_1_PLUS_CARD_2")),
-    aggregateSpec("AGG_H1", "First hole card aggregate", "CARD_1", assets.filter((asset) => asset.category === "CARD_1")),
-    aggregateSpec("AGG_H2", "Second hole card aggregate", "CARD_2", assets.filter((asset) => asset.category === "CARD_2")),
-    aggregateSpec("AGG_ZERO", "Only community cards aggregate", "ZERO", assets.filter((asset) => asset.category === "ZERO")),
-  ];
-}
-
-function aggregateSpec(code, name, category, assets) {
-  return {
-    code,
-    category,
-    name,
-    assetCodes: assets.map((asset) => asset.code),
-    active: true,
-    isAggregate: true,
-  };
+  renderCalibrationStatus();
 }
 
 function changeChartMode(event) {
@@ -302,7 +429,7 @@ function changeChartMode(event) {
 
 function toggleThemeMode(event) {
   useDarkTheme = event.target.checked;
-  localStorage.setItem("essence-theme", useDarkTheme ? "dark" : "light");
+  persistTheme(localStorage, useDarkTheme);
   applyThemeMode();
 }
 
@@ -311,10 +438,55 @@ function applyThemeMode() {
   document.getElementById("theme-toggle").checked = useDarkTheme;
 }
 
+async function hydrateEmpiricalCalibrationHealth() {
+  await empiricalSpotStore.hydrateHealth();
+}
+
+function renderCalibrationStatus() {
+  const container = document.getElementById("calibration-status");
+  if (!container) {
+    return;
+  }
+  const health = empiricalSpotStore.health?.data?.empiricalCalibration;
+  const actions = visiblePlayerActionsForCurrentStreet();
+  const summary = empiricalSpotStore.summary(actions);
+  const status = empiricalSpotStore.status(actions);
+  const corpusLabel = !empiricalSpotStore.health
+    ? "Checking empirical calibration"
+    : health?.ok
+      ? `${formatInteger(health.hands)} hands · ${formatInteger(health.actions)} actions`
+      : "Empirical calibration unavailable";
+  const spotLabel = summary.total
+    ? `${summary.ready}/${summary.total} action spots loaded${summary.pending ? " · loading" : ""}`
+    : "No action spots yet";
+  const latestWorkerFailure = workerFailures.at(-1);
+  const workerStatus = latestWorkerFailure
+    ? `<span class="empirical-pill fallback" title="${escapeHtml(latestWorkerFailure.message)}">Worker fallback</span>`
+    : "";
+  container.innerHTML = `
+    <span class="empirical-pill ${status}">${escapeHtml(empiricalStatusLabel(status))}</span>
+    <span>${escapeHtml(corpusLabel)}</span>
+    <span>${escapeHtml(calibrationContext.stakeBucket)} · ${escapeHtml(calibrationContext.yearBucket)}</span>
+    <span>${escapeHtml(spotLabel)}</span>
+    ${workerStatus}
+  `;
+}
+
+function recordWorkerFailure(failure) {
+  workerFailures = [...workerFailures.slice(-4), failure];
+  appState.computed.workerFailures = workerFailures;
+  renderCalibrationStatus();
+}
+
 function resetWinShareState() {
-  currentWinShares = handState ? {} : priorWinSharesByPage();
-  winShareComputationScheduled = false;
-  aggregateEquityComputationScheduled = false;
+  equityController.resetWinShareState();
+}
+
+function patchCurrentWinShares(page, updater) {
+  currentWinShares = {
+    ...currentWinShares,
+    [page]: updater(currentWinShares[page]),
+  };
 }
 
 function priorWinSharesByPage() {
@@ -332,82 +504,24 @@ function priorWinSharesByPage() {
   return shares;
 }
 
+function normalizedPortfolios(data) {
+  return normalizedPortfoliosForConfig(data, tableConfig);
+}
+
+function rebuildDashboardPortfolios() {
+  dashboardData.portfolios = normalizedPortfolios(dashboardData);
+}
+
 function priorCurvesByPage(data) {
-  return Object.fromEntries(
-    Object.keys(data.portfolios).map((page) => {
-      const curves = priorCurvesForAssets(data.portfolios[page].assets, data);
-      for (const aggregate of data.portfolios[page].aggregates || []) {
-        curves[aggregate.code] = priorCurveForModel(aggregate, data, priorAggregateCurve(data));
-      }
-      return [page, curves];
-    }),
-  );
+  return priorCurvesByPortfolioPage(data, priorXByGradation);
 }
 
 function priorAggregateCurve(data = dashboardData) {
-  const aggregate = data.priorAggregate;
-  if (!aggregate?.counts) {
-    return {
-      curve: data.curve,
-      totalCombos: data.totalCombos,
-      bestGradation: 1,
-      worstGradation: data.bucketCount,
-    };
-  }
-
-  let cumulative = 0;
-  const curve = [];
-  for (let gradation = 1; gradation <= data.bucketCount; gradation += 1) {
-    cumulative += aggregate.counts[gradation] || 0;
-    curve.push({
-      gradation,
-      probability: cumulative / aggregate.totalCombos,
-      x: priorXByGradation.get(gradation),
-    });
-  }
-  return {
-    curve,
-    totalCombos: aggregate.totalCombos,
-    bestGradation: aggregate.bestGradation,
-    worstGradation: aggregate.worstGradation,
-  };
-}
-
-function priorCurvesForAssets(assets, data = dashboardData) {
-  const fallback = {
-    curve: data.curve,
-    totalCombos: data.totalCombos,
-    bestGradation: 1,
-    worstGradation: data.bucketCount,
-  };
-  return Object.fromEntries(assets.map((asset) => [asset.code, priorCurveForModel(asset, data, fallback)]));
+  return priorAggregateCurveForData(data, priorXByGradation);
 }
 
 function priorCurveForModel(model, data = dashboardData, fallback = null) {
-  if (!model?.prior) {
-    return fallback;
-  }
-  return curveFromTrimmedCounts(
-    model.prior,
-    model.prior.totalCombos,
-    data.bucketCount,
-    priorXByGradation,
-  );
-}
-
-function priorNaturalXMapsByPage(curvesByPage) {
-  return Object.fromEntries(
-    Object.entries(curvesByPage).map(([page, curves]) => [
-      page,
-      Object.fromEntries(
-        Object.entries(curves).map(([code, curveData]) => [code, naturalXMapFromCurve(curveData?.curve || [])]),
-      ),
-    ]),
-  );
-}
-
-function naturalXMapFromCurve(curve) {
-  return new Map(curve.map((point) => [point.gradation, point.probability]));
+  return priorCurveForPortfolioModel(model, data, priorXByGradation, fallback);
 }
 
 function currentPortfolio() {
@@ -423,10 +537,11 @@ function currentAssets() {
 }
 
 function currentConcreteAssetCount() {
-  if (activePage === "config") {
-    return concreteAssetCount(dashboardData.portfolios.hero);
-  }
-  return concreteAssetCount(currentPortfolio());
+  return currentConcreteAssetCountForPortfolio({
+    activePage,
+    dashboardData,
+    currentPortfolio: currentPortfolio(),
+  });
 }
 
 function withHeroVillainAggregate(aggregates) {
@@ -480,7 +595,7 @@ function isVillainPageFolded(page) {
   const position = positionFromPageKey(page);
   return Boolean(
     position &&
-    playerHasFoldedByStreet(playerActions, page, currentActionStreet()),
+    playerHasFoldedByStreet(visiblePlayerActionsForCurrentStreet(), page, currentActionStreet()),
   );
 }
 
@@ -542,7 +657,7 @@ function updatePageTabs() {
     button.classList.toggle("is-folded", isVillainPageFolded(button.dataset.page));
   }
   const showdownButton = document.getElementById("showdown-button");
-  showdownButton.hidden = !(isOpponentPage(activePage) && !isVillainPageFolded(activePage) && handState?.round === "river" && !villainShowdown);
+  showdownButton.hidden = !(handState?.round === "river" && !villainShowdown);
 }
 
 function shouldDeferPreflopClassData() {
@@ -556,21 +671,29 @@ function shouldDeferPreflopClassData() {
 }
 
 function preflopClassDataReady(h1, h2) {
-  const classKey = preflopClassKeyForCards(h1, h2);
-  return Boolean(preflopAggregateClasses[classKey] && preflopHiddenVillainClasses[classKey] && preflopPrimaryClasses[classKey]);
+  return preflopClassStore.ready(h1, h2);
 }
 
 function preflopClassDataUnavailable(h1, h2) {
-  return unavailablePreflopClassKeys.has(preflopClassKeyForCards(h1, h2));
+  return preflopClassStore.unavailable(h1, h2);
 }
 
-function renderAssets() {
+function renderAssets({ deferMissingCurves = false } = {}) {
   if (activePage === "config") {
     renderConfigPage();
     return;
   }
   if (shouldDeferPreflopClassData()) {
     queuePreflopClassDataLoad(handState.h1, handState.h2);
+  }
+  ensureEmpiricalSpotsForActions();
+  if (deferMissingCurves && shouldRenderWithoutCurrentPageCurves()) {
+    renderLoadingAssets({
+      title: "Restoring street",
+      copy: "The hand state is ready. Curves are loading in the background.",
+    });
+    scheduleCurrentPageCurves({ delayMs: 120 });
+    return;
   }
   if (shouldDeferCurrentPageCurves()) {
     renderLoadingAssets();
@@ -583,6 +706,13 @@ function renderAssets() {
   ensureAggregateEquities();
   const container = document.getElementById("asset-grid");
   container.innerHTML = "";
+  const showdownSection = currentShowdownSection();
+  if (showdownSection) {
+    container.appendChild(showdownSection);
+  }
+  if (activePage === "hero" || isOpponentPage(activePage)) {
+    container.appendChild(rangeMatrixSection(activePage));
+  }
   for (const category of categoryOrder) {
     const assets = currentAssets().filter((asset) => asset.category === category);
     const visibleAssets = hideInactiveAssets ? assets.filter((asset) => isAssetCurrentlyActive(asset)) : assets;
@@ -593,309 +723,50 @@ function renderAssets() {
   }
 }
 
-function ensureCurrentPageWinShares() {
-  if (!handState || activePage === "config" || currentWinShares[activePage] || winShareComputationScheduled) {
-    return;
-  }
-  if (isOpponentPage(activePage) && !villainShowdown) {
-    return;
-  }
+function rangeMatrixSection(page) {
+  return rangeShowdownPanel.rangeMatrixSection(page);
+}
 
-  const token = curveComputationToken;
-  const page = activePage;
-  winShareComputationScheduled = true;
-  setTimeout(async () => {
-    winShareComputationScheduled = false;
-    if (token !== curveComputationToken || currentWinShares[page]) {
-      return;
-    }
-    currentWinShares[page] = {
-      ...(currentWinShares[page] || {}),
-      ...(await cachedOrComputedWinSharesForPage(page)),
-      aggregateShares: currentWinShares[page]?.aggregateShares,
-      aggregateEquityMeta: currentWinShares[page]?.aggregateEquityMeta,
-    };
-    updateCurrentStreetSnapshot();
-    if (activePage === page) {
-      renderAssets();
-      if (focusedAsset && !focusedAsset.isAggregate) {
-        openFocus(focusedAsset);
-      }
-    }
-  }, 20);
+function currentShowdownSection() {
+  return rangeShowdownPanel.currentShowdownSection();
+}
+
+function showdownHoleCardsForPlayer(playerId) {
+  if (playerId === "hero") {
+    return handState ? [handState.h1, handState.h2].filter(Boolean) : [];
+  }
+  return showdownHoleCardsByPlayer[playerId] || [];
+}
+
+function estimatedRangeForPage(page) {
+  const deadCards = page === "hero" ? currentBoardCards() : knownCardsForHand();
+  const ranges = inferPreflopRanges({
+    tableConfig,
+    actions: visiblePlayerActionsForCurrentStreet(),
+    deadCards,
+    knownBoard: currentBoardCards(),
+    bucketCount: dashboardData.bucketCount,
+    evaluateGradation,
+    empiricalSpots: empiricalSpotsForCurrentActions(),
+    playerProfiles: playerProfilesForInference(),
+  });
+  return ranges[page] || ranges.hero || null;
+}
+
+function openRangeMatrixFocus(page) {
+  rangeShowdownPanel.openRangeMatrixFocus(page);
+}
+
+function ensureCurrentPageWinShares() {
+  equityController.ensureCurrentPageWinShares();
 }
 
 function ensureAggregateEquities() {
-  if (activePage === "config" || aggregateEquitiesAreReady() || aggregateEquityComputationScheduled) {
-    return;
-  }
-  if (!handState) {
-    applyAggregateEquities(priorMultiwayAggregateEquities());
-    return;
-  }
-
-  const token = curveComputationToken;
-  aggregateEquityComputationScheduled = true;
-  setTimeout(async () => {
-    aggregateEquityComputationScheduled = false;
-    if (token !== curveComputationToken || aggregateEquitiesAreReady()) {
-      return;
-    }
-    const equities = await cachedOrComputedAggregateEquities();
-    if (token !== curveComputationToken) {
-      return;
-    }
-    applyAggregateEquities(equities);
-    updateCurrentStreetSnapshot();
-    renderAssets();
-    if (focusedAsset?.isAggregate) {
-      openFocus(focusedAsset);
-    }
-  }, 250);
+  equityController.ensureAggregateEquities();
 }
 
 function aggregateEquitiesAreReady() {
-  const activeVillains = activeVillainPageKeys();
-  if (currentWinShares.hero?.aggregateShares?.AGG == null || currentWinShares.hero?.aggregateShares?.RANGE_AGG == null) {
-    return false;
-  }
-  return villainPageKeys().every((page) =>
-    currentWinShares[page]?.aggregateShares?.AGG != null ||
-    (!activeVillains.includes(page) && isVillainPageFolded(page)),
-  );
-}
-
-function priorMultiwayAggregateEquities() {
-  const activeVillains = activeVillainPageKeys();
-  const participantCount = activeVillains.length + 1;
-  const share = participantCount > 0 ? 1 / participantCount : 1;
-  return {
-    actual: {
-      equities: {
-        hero: share,
-        ...Object.fromEntries(activeVillains.map((page) => [page, share])),
-      },
-      nsims: 1,
-      exact: true,
-    },
-    range: {
-      equities: { range: share },
-      nsims: 1,
-      exact: true,
-    },
-  };
-}
-
-function applyAggregateEquities({ actual, range }) {
-  currentWinShares.hero = currentWinShares.hero || {};
-  currentWinShares.hero.aggregateShares = {
-    ...(currentWinShares.hero.aggregateShares || {}),
-    AGG: actual.equities.hero ?? 0,
-    RANGE_AGG: range.equities.range ?? 0,
-  };
-  currentWinShares.hero.aggregateEquityMeta = { actual, range };
-
-  const activeVillains = activeVillainPageKeys();
-  for (const page of villainPageKeys()) {
-    currentWinShares[page] = currentWinShares[page] || {};
-    currentWinShares[page].aggregateShares = {
-      ...(currentWinShares[page].aggregateShares || {}),
-      AGG: isVillainPageFolded(page) ? 0 : (actual.equities[page] ?? 0),
-    };
-    currentWinShares[page].aggregateEquityMeta = actual;
-  }
-}
-
-async function cachedOrComputedAggregateEquities() {
-  const actual = await cachedOrComputedAggregateEquity("actual");
-  const range = playerActions.some((action) => action.street === "preflop")
-    ? await cachedOrComputedAggregateEquity("range")
-    : exactRangeAggregateEquity();
-  return { actual, range };
-}
-
-function exactRangeAggregateEquity() {
-  const participantCount = activeVillainPageKeys().length + 1;
-  return {
-    equities: { range: participantCount > 0 ? 1 / participantCount : 1 },
-    nsims: 1,
-    exact: true,
-  };
-}
-
-async function cachedOrComputedAggregateEquity(matchup) {
-  const payload = multiwayEquityPayload(matchup);
-  const cacheKey = buildAggregateEquityCacheKey(matchup, payload);
-  const cached = await readApiCache(cacheKey);
-  if (cached) {
-    return preflopAggregateEquityUsesCanonicalCache(matchup, payload)
-      ? expandCachedPreflopAggregateEquity(cached, payload)
-      : cached;
-  }
-  const result = await computeMultiwayEquityAsync(payload);
-  writeApiCache(
-    cacheKey,
-    preflopAggregateEquityUsesCanonicalCache(matchup, payload)
-      ? compactPreflopAggregateEquity(result, payload)
-      : result,
-  );
-  return result;
-}
-
-function buildAggregateEquityCacheKey(matchup, payload) {
-  if (preflopAggregateEquityUsesCanonicalCache(matchup, payload)) {
-    return buildPreflopMultiwayEquityCacheKey({
-      namespace: cacheNamespace(ASSET_VERSION),
-      matchup,
-      heroCards: payload.participants.find((participant) => participant.id === "hero")?.knownHoleCards,
-      activePlayerCount: payload.participants.length,
-      nsims: payload.nsims,
-    });
-  }
-  return buildMultiwayEquityCacheKey({
-    namespace: cacheNamespace(ASSET_VERSION),
-    matchup,
-    participants: payload.participants,
-    knownBoard: payload.knownBoard,
-    deadCards: payload.deadCards,
-    foldedPages: villainPageKeys().filter(isVillainPageFolded),
-    nsims: payload.nsims,
-  });
-}
-
-function preflopAggregateEquityUsesCanonicalCache(matchup, payload) {
-  return (
-    matchup === "actual" &&
-    handState?.round === "preflop" &&
-    payload.knownBoard.length === 0 &&
-    !playerActions.some((action) => action.street === "preflop") &&
-    payload.participants.some((participant) => participant.id === "hero" && participant.knownHoleCards?.length === 2)
-  );
-}
-
-function compactPreflopAggregateEquity(result, payload) {
-  const villainIds = payload.participants.map((participant) => participant.id).filter((id) => id !== "hero");
-  const villainShare = villainIds.length
-    ? villainIds.reduce((total, id) => total + (result.equities[id] || 0), 0) / villainIds.length
-    : 0;
-  return {
-    hero: result.equities.hero ?? 0,
-    villain: villainShare,
-    nsims: result.nsims,
-    exact: result.exact,
-  };
-}
-
-function expandCachedPreflopAggregateEquity(cached, payload) {
-  if (!Number.isFinite(cached?.hero) || !Number.isFinite(cached?.villain)) {
-    return cached;
-  }
-  return {
-    equities: Object.fromEntries(
-      payload.participants.map((participant) => [
-        participant.id,
-        participant.id === "hero" ? cached.hero : cached.villain,
-      ]),
-    ),
-    nsims: cached.nsims,
-    exact: cached.exact,
-  };
-}
-
-async function computeMultiwayEquityAsync(payload) {
-  if (!computationWorker) {
-    return computeMultiwayAggregateEquitiesChunked({
-      participants: payload.participants,
-      knownBoard: payload.knownBoard,
-      deck: payload.deck,
-      evaluateGradationFive,
-      nsims: payload.nsims,
-      seed: payload.seed,
-    });
-  }
-  return computationWorker.computeMultiwayEquities(payload, () => computeMultiwayEquity(payload));
-}
-
-function computeMultiwayEquity(payload) {
-  return computeMultiwayAggregateEquities({
-    participants: payload.participants,
-    knownBoard: payload.knownBoard,
-    deck: payload.deck,
-    evaluateGradationFive,
-    nsims: payload.nsims,
-    seed: payload.seed,
-  });
-}
-
-function multiwayEquityPayload(matchup) {
-  const knownBoard = currentBoardCards();
-  const knownHeroCards = handState?.h1 && handState?.h2 ? [handState.h1, handState.h2] : [];
-  const inferredRanges = inferredRangesForEquity(matchup, knownHeroCards, knownBoard);
-  const participants = matchup === "range"
-    ? [
-      rangeParticipant("range", inferredRanges.hero),
-      ...activeVillainPageKeys().map((page) => rangeParticipant(page, inferredRanges[page])),
-    ]
-    : [
-      { id: "hero", knownHoleCards: knownHeroCards.length === 2 ? knownHeroCards : undefined },
-      ...activeVillainPageKeys().map((page) => rangeParticipant(page, inferredRanges[page])),
-    ];
-  const knownUnavailableCards = matchup === "range"
-    ? knownCardsForHand()
-    : [...knownHeroCards, ...knownBoard];
-  const deck = removeKnownCards(fullDeck, knownUnavailableCards);
-  return {
-    bucketKeys: dashboardData.bucketKeys,
-    bucketCount: dashboardData.bucketCount,
-    participants,
-    knownBoard,
-    deadCards: knownUnavailableCards,
-    deck,
-    nsims: DEFAULT_MULTIWAY_EQUITY_SIMS,
-    seed: hashString(`${ASSET_VERSION}:${matchup}:${JSON.stringify(knownUnavailableCards.map(cardId))}:${activeVillainPageKeys().join(",")}`),
-  };
-}
-
-function inferredRangesForEquity(matchup, knownHeroCards, knownBoard) {
-  const deadCards = matchup === "range" ? knownBoard : [...knownHeroCards, ...knownBoard];
-  if (!playerActions.some((action) => action.street === "preflop")) {
-    return {};
-  }
-  return inferPreflopRanges({
-    tableConfig,
-    actions: playerActions,
-    deadCards,
-  });
-}
-
-function rangeParticipant(id, range) {
-  if (!range) {
-    return { id };
-  }
-  return {
-    id,
-    rangeKey: compactRangeKey(range),
-    rangeCombos: range.combos.map((combo) => ({
-      cards: combo.cards,
-      weight: combo.weight,
-    })),
-  };
-}
-
-function compactRangeKey(range) {
-  const historyKey = (range.history || [])
-    .map((entry) => `${entry.action.type}:${entry.action.amount ?? ""}:${entry.targetFrequency?.toFixed?.(4) ?? ""}`)
-    .join(",");
-  return `${range.position || ""}:${range.summary.weightedCombos.toFixed(3)}:${historyKey}`;
-}
-
-function hashString(value) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
+  return equityController.aggregateEquitiesAreReady();
 }
 
 function ensureHeroMirrorCurves() {
@@ -938,15 +809,15 @@ function scheduleHeroMirrorCurves(pageOrPages) {
     return;
   }
   const pages = Array.isArray(pageOrPages) ? pageOrPages : [pageOrPages];
-  const token = curveComputationToken;
+  const guards = new Map(pages.map((page) => [page, createCurrentAsyncGuard({ purpose: "hero-mirror-curves", page })]));
   villainMirrorComputationScheduled = true;
   setTimeout(() => {
     villainMirrorComputationScheduled = false;
-    if (token !== curveComputationToken) {
+    if (!pages.some((page) => guards.get(page).isCurrent())) {
       return;
     }
     for (const page of pages) {
-      if (!currentCurves[page]) {
+      if (guards.get(page).isCurrent() && !currentCurves[page]) {
         currentCurves[page] = page === "range" ? curvesForRangeAggregate() : curvesForVillain(page);
       }
     }
@@ -962,109 +833,24 @@ function scheduleHeroMirrorCurves(pageOrPages) {
 }
 
 function renderConfigPage() {
-  const container = document.getElementById("asset-grid");
-  const normalized = normalizeTableConfig(tableConfig);
-  container.innerHTML = `
-    <section class="config-panel">
-      <div class="section-header">
-        <div>
-          <h2>Config</h2>
-          <p>Table and display preferences</p>
-        </div>
-      </div>
-      <div class="config-row config-row-stack">
-        <span>
-          <span class="config-title">Players</span>
-          <span class="config-copy">This determines how many positional opponent pages are shown.</span>
-        </span>
-        <span class="config-segmented" role="radiogroup" aria-label="Player count">
-          ${PLAYER_COUNTS.map((count) => `
-            <label>
-              <input type="radio" name="player-count" value="${count}" ${normalized.playerCount === count ? "checked" : ""}>
-              <span>${count}</span>
-            </label>
-          `).join("")}
-        </span>
-      </div>
-      <div class="config-row config-row-stack">
-        <span>
-          <span class="config-title">Hero position</span>
-          <span class="config-copy">All other occupied seats become villain pages.</span>
-        </span>
-        <span class="config-segmented" role="radiogroup" aria-label="Hero position">
-          ${TABLE_POSITIONS.map((position) => {
-            const isAvailable = normalized.positions.includes(position);
-            return `
-              <label class="${isAvailable ? "" : "is-disabled"}">
-                <input type="radio" name="hero-position" value="${position}" ${normalized.heroPosition === position ? "checked" : ""} ${isAvailable ? "" : "disabled"}>
-                <span>${position}</span>
-              </label>
-            `;
-          }).join("")}
-        </span>
-      </div>
-      <div class="config-row config-row-stack">
-        <span>
-          <span class="config-title">Starting stacks</span>
-          <span class="config-copy">Stacks are in big blind units and cap bet, raise, call, and all-in sizes.</span>
-        </span>
-        <span class="stack-config-grid" aria-label="Starting stacks">
-          ${normalized.positions.map((position) => `
-            <label class="stack-config-field">
-              <span>${position}</span>
-              <input type="number" min="1" step="1" name="player-stack" value="${normalized.playerStacks[position]}" data-stack-position="${position}">
-            </label>
-          `).join("")}
-        </span>
-      </div>
-      <label class="config-row">
-        <span>
-          <span class="config-title">Hide inactive assets</span>
-          <span class="config-copy">Only active assets remain visible in each portfolio section.</span>
-        </span>
-        <span class="toggle-control config-toggle">
-          <input id="hide-inactive-toggle" type="checkbox" ${hideInactiveAssets ? "checked" : ""}>
-          <span class="toggle-track" aria-hidden="true"></span>
-        </span>
-      </label>
-    </section>
-  `;
-  for (const input of document.querySelectorAll('input[name="player-count"]')) {
-    input.addEventListener("change", changePlayerCount);
-  }
-  for (const input of document.querySelectorAll('input[name="hero-position"]')) {
-    input.addEventListener("change", changeHeroPosition);
-  }
-  for (const input of document.querySelectorAll('input[name="player-stack"]')) {
-    input.addEventListener("change", changePlayerStack);
-  }
-  document.getElementById("hide-inactive-toggle").addEventListener("change", toggleHideInactiveAssets);
+  configPage.renderConfigPage();
 }
 
-function changePlayerCount(event) {
-  updateTableConfig({
-    ...tableConfig,
-    playerCount: Number(event.target.value),
-    heroPosition: tableConfig.heroPosition,
-  });
+function updateCalibrationContext(nextContext) {
+  calibrationContext = {
+    stakeBucket: nextContext.stakeBucket || "micro",
+    yearBucket: nextContext.yearBucket || "2009-2010",
+  };
+  persistCalibrationContext(localStorage, calibrationContext);
+  empiricalSpotStore.clearMisses();
+  invalidateRangeDerivedState();
+  renderAssets();
 }
 
-function changeHeroPosition(event) {
-  updateTableConfig({
-    ...tableConfig,
-    playerCount: tableConfig.playerCount,
-    heroPosition: event.target.value,
-  });
-}
-
-function changePlayerStack(event) {
-  updateTableConfig({
-    ...tableConfig,
-    playerStacks: {
-      ...(tableConfig.playerStacks || {}),
-      [event.target.dataset.stackPosition]: Number(event.target.value),
-    },
-  });
+function updatePlayerProfiles(nextProfiles) {
+  playerProfiles = nextProfiles;
+  persistPlayerProfiles(localStorage, playerProfiles);
+  invalidateRangeDerivedState();
 }
 
 function updateTableConfig(nextConfig) {
@@ -1081,6 +867,7 @@ function updateTableConfig(nextConfig) {
   renderHoldingDisplay();
   updatePageTabs();
   updateLegend();
+  renderCalibrationStatus();
   renderAssets();
 }
 
@@ -1097,15 +884,12 @@ function advanceHeroPositionForNewHand() {
 }
 
 function persistTableConfig() {
-  localStorage.setItem("essence-player-count", String(tableConfig.playerCount));
-  localStorage.setItem("essence-hero-position", tableConfig.heroPosition);
-  localStorage.removeItem("essence-folded-villains");
-  localStorage.setItem("essence-player-stacks", JSON.stringify(tableConfig.playerStacks || {}));
+  persistTableConfigStorage(localStorage, tableConfig);
 }
 
 function toggleHideInactiveAssets(event) {
   hideInactiveAssets = event.target.checked;
-  localStorage.setItem("essence-hide-inactive-assets", hideInactiveAssets ? "true" : "false");
+  persistHideInactiveAssets(localStorage, hideInactiveAssets);
 }
 
 function renderLoadingAssets({
@@ -1169,11 +953,12 @@ function renderHoldingDisplay() {
       ${editableCardHtml("R", handState.river)}
     `
     : "";
-  const villainHtml = isOpponentPage(activePage) && villainShowdown
+  const villainCards = showdownHoleCardsForPlayer(activePage);
+  const villainHtml = isOpponentPage(activePage) && villainShowdown && villainCards.length === 2
     ? `
       <span class="holding-label">${currentPortfolio().name}</span>
-      ${editableCardHtml("V_1", handState.v1)}
-      ${editableCardHtml("V_2", handState.v2)}
+      ${editableCardHtml("V_1", villainCards[0])}
+      ${editableCardHtml("V_2", villainCards[1])}
     `
     : "";
 
@@ -1197,159 +982,104 @@ function renderPlayerActions() {
     }
     return;
   }
-  const street = currentActionStreet();
-  const visibleActions = actionsVisibleThroughStreet(playerActions, street);
-  const currentActor = currentActionActor(street);
-  const actionPlan = currentActor ? legalActionPlanForActor(currentActor.id, street) : { actions: [] };
-  container.innerHTML = `
-    <div class="action-history">
-      ${visibleActionStreets(street).map((streetName) => actionStreetSection(streetName, visibleActions)).join("")}
-    </div>
-    <div class="action-composer" data-action-composer data-current-action-player="${escapeHtml(currentActor?.id || "")}">
-      <span class="action-current-player">${currentActor ? `${escapeHtml(actionPlayerLabel(currentActor.id))} to act` : "Action closed"}</span>
-      ${currentActor ? actionButtonsHtml(actionPlan) : ""}
-    </div>
-  `;
+  container.innerHTML = renderPlayerActionsHtml(actionPanelView());
 }
 
 function currentActionStreet() {
   return handState?.round || null;
 }
 
-function currentActionActor(street = currentActionStreet()) {
-  const order = actionPlayerOrder(street);
-  const actorId = nextActionPlayer({
-    order: order.map((player) => player.id),
-    actions: playerActions,
-    street,
-    foldedBeforeStreet: (playerId) => playerIsFoldedBeforeStreet(playerId, street),
-    canAct: (playerId) => bettingStateForCurrentStreet(street).remainingStack(playerId) > 0,
+function actionPanelView() {
+  return actionPanelViewModel({
+    handState,
+    tableConfig,
+    playerActions,
+    visibleSnapshot: refreshVisibleHandSnapshot(),
+    currentStreet: currentActionStreet(),
+    pendingSizingActionType,
+    empiricalEvidenceForAction,
   });
-  if (!actorId) {
-    return null;
-  }
-  return order.find((player) => player.id === actorId) || null;
+}
+
+function visiblePlayerActionsForCurrentStreet(street = currentActionStreet()) {
+  return visibleSnapshotActionsForStreet(refreshVisibleHandSnapshot(), street);
+}
+
+function currentActionPrefix() {
+  return refreshVisibleHandSnapshot().currentActionPrefix;
+}
+
+function currentViewedActionCount() {
+  return refreshVisibleHandSnapshot().viewedActionCount;
+}
+
+function currentActionActor(street = currentActionStreet()) {
+  return currentActionHelpers().currentActionActor(street);
 }
 
 function actionPlayerOrder(street = currentActionStreet()) {
-  return actionPositionsForStreet(tableConfig, street).map((position) => ({
-    id: position === tableConfig.heroPosition ? "hero" : positionPageKey(position),
-    position,
-    label: position === tableConfig.heroPosition
-      ? `Hero (${positionDisplayName(position)})`
-      : positionDisplayName(position),
-  }));
+  return currentActionHelpers().actionPlayerOrder(street);
 }
 
 function legalActionPlanForActor(playerId, street = currentActionStreet()) {
-  return legalActionPlan({
-    player: playerId,
-    street,
-    state: bettingStateForCurrentStreet(street),
-  });
+  return currentActionHelpers().legalActionPlanForActor(playerId, street);
 }
 
 function bettingStateForCurrentStreet(street = currentActionStreet()) {
-  const order = actionPlayerOrder(street).map((player) => player.id);
-  return bettingStateForStreet({
-    actions: playerActions,
-    street,
-    order,
-    stacks: playerStacksById(),
-    smallBlindPlayer: playerIdForPosition("SB"),
-    bigBlindPlayer: playerIdForPosition("BB"),
-  });
+  return currentActionHelpers().bettingStateForCurrentStreet(street);
 }
 
 function playerStacksById() {
-  return Object.fromEntries(
-    tableConfig.positions.map((position) => [playerIdForPosition(position), tableConfig.playerStacks?.[position] || 100]),
-  );
+  return currentActionHelpers().playerStacksById();
 }
 
 function playerIdForPosition(position) {
-  return position === tableConfig.heroPosition ? "hero" : positionPageKey(position);
+  return currentActionHelpers().playerIdForPosition(position);
 }
 
 function playerIsFoldedBeforeStreet(playerId, street) {
-  if (playerId === "hero") {
-    return playerHasFoldedByStreet(playerActions, playerId, previousActionStreet(street));
-  }
-  const position = positionFromPageKey(playerId);
-  return Boolean(position && playerHasFoldedByStreet(playerActions, playerId, previousActionStreet(street)));
+  return currentActionHelpers().playerIsFoldedBeforeStreet(playerId, street);
 }
 
 function previousActionStreet(street) {
-  const index = ACTION_STREETS.indexOf(street);
-  return index > 0 ? ACTION_STREETS[index - 1] : null;
+  return currentActionHelpers().previousActionStreet(street);
 }
 
 function visibleActionStreets(street) {
-  const currentIndex = ACTION_STREETS.indexOf(street);
-  return ACTION_STREETS.slice(0, currentIndex + 1);
+  return currentActionHelpers().visibleActionStreets(street);
 }
 
-function actionStreetSection(street, visibleActions) {
-  const streetActions = visibleActions.filter((action) => action.street === street);
-  const empty = streetActions.length
-    ? ""
-    : `<span class="action-empty">No actions</span>`;
-  return `
-    <div class="action-street-section" data-action-street="${street}">
-      <span class="action-street" data-street="${street}">${street}</span>
-      <div class="action-tags">
-        ${empty}
-        ${streetActions.map((action) => actionTagHtml(action, streetActions)).join("")}
-      </div>
-    </div>
-  `;
+function actionCountThroughStreet(street) {
+  return visibleSnapshotActionCountThroughStreet(playerActions, street);
 }
 
-function actionTagHtml(action, streetActions) {
-  return `
-    <button class="action-tag" type="button" data-delete-action="${escapeHtml(action.id)}" data-street="${action.street}" title="Delete action">
-      <span class="action-tag-player">${escapeHtml(actionPlayerLabel(action.player))}</span>
-      <span>${escapeHtml(actionTagLabel(action, streetActions))}</span>
-      <span class="action-tag-delete" aria-hidden="true">x</span>
-    </button>
-  `;
+function actionCountBeforeStreet(street) {
+  return visibleSnapshotActionCountBeforeStreet(playerActions, street);
+}
+
+function actionCountsForStreet(street) {
+  return visibleSnapshotActionCountsForStreet(playerActions, street);
+}
+
+function lastRemovableActionId() {
+  return currentActionHelpers().lastRemovableActionId();
+}
+
+function empiricalEvidenceForAction(action) {
+  return empiricalSpotStore.evidenceForAction(action);
 }
 
 function actionPlayerLabel(playerId) {
-  if (playerId === "hero") {
-    return tableConfig.heroPosition;
-  }
-  return positionFromPageKey(playerId) || playerId;
+  return currentActionHelpers().actionPlayerLabel(playerId);
 }
 
-function actionTypeLabel(type) {
-  return type === "all-in" ? "All-in" : type;
-}
-
-function actionButtonsHtml(actionPlan) {
-  if (pendingSizingActionType && actionPlan.actions.includes(pendingSizingActionType)) {
-    const minAmount = pendingSizingActionType === "bet" ? actionPlan.minBet : actionPlan.minRaiseAmount;
-    const maxAmount = actionPlan.maxAmount;
-    const value = Math.max(minAmount, Math.min(maxAmount, Math.round((minAmount + maxAmount) / 2)));
-    return `
-      <div class="action-sizing" data-sizing-action="${pendingSizingActionType}">
-        <span class="sizing-label">${actionTypeLabel(pendingSizingActionType)}</span>
-        <input class="sizing-slider" type="range" min="${minAmount}" max="${maxAmount}" step="1" value="${value}" data-sizing-slider>
-        <output class="sizing-output" data-sizing-output>${formatAmount(value)}</output>
-        <button class="action-button action-add-button" type="button" data-confirm-sized-action>OK</button>
-        <button class="action-button" type="button" data-cancel-sized-action>Cancel</button>
-      </div>
-    `;
-  }
-  return `
-    <span class="action-buttons">
-      ${actionPlan.actions.map((type) => `
-        <button class="action-button ${type === "bet" || type === "raise" ? "action-sized-button" : ""}" type="button" data-instant-action="${type}">
-          ${actionTypeLabel(type)}
-        </button>
-      `).join("")}
-    </span>
-  `;
+function currentActionHelpers() {
+  return actionHelpers({
+    handState,
+    tableConfig,
+    playerActions,
+    visibleSnapshot: refreshVisibleHandSnapshot(),
+  });
 }
 
 function handlePlayerActionClick(event) {
@@ -1421,22 +1151,37 @@ function handleRaisePercentChange(event) {
 
 function applyPlayerAction(action) {
   try {
-    playerActions = appendPlayerAction(playerActions, action);
+    playerActions = appendLegalPlayerAction(playerActions, action, actionLegalityContext());
   } catch {
     return;
   }
+  viewedActionCount = null;
   pendingSizingActionType = null;
   refreshAfterPlayerActionChange();
 }
 
+function actionLegalityContext() {
+  return {
+    orderForStreet: (street) => actionPlayerOrder(street).map((player) => player.id),
+    stacks: playerStacksById(),
+    smallBlindPlayer: playerIdForPosition("SB"),
+    bigBlindPlayer: playerIdForPosition("BB"),
+  };
+}
+
 function deleteAction(actionId) {
+  if (actionId !== lastRemovableActionId()) {
+    return;
+  }
   playerActions = deletePlayerAction(playerActions, actionId);
+  viewedActionCount = null;
   pendingSizingActionType = null;
   refreshAfterPlayerActionChange();
 }
 
 function refreshAfterPlayerActionChange() {
   curveComputationToken += 1;
+  actionMomentCache = new Map();
   currentCurves = handState ? {} : priorCurvesByPage(dashboardData);
   resetWinShareState();
   updateCurrentStreetSnapshot();
@@ -1444,259 +1189,32 @@ function refreshAfterPlayerActionChange() {
   renderHoldingDisplay();
   updatePageTabs();
   updateLegend();
+  renderCalibrationStatus();
   renderAssets();
 }
 
 function handleCardEditClick(event) {
-  const action = event.target.closest("[data-card-edit-action]");
-  if (action) {
-    handleCardEditorAction(action);
-    return;
-  }
-
-  const button = event.target.closest("[data-card-token]");
-  if (!button) {
-    return;
-  }
-  const token = button.dataset.cardToken;
-  if (!handState && token !== "H_1" && token !== "H_2") {
-    return;
-  }
-  editingCardToken = token;
-  cardEditError = "";
-  renderHoldingDisplay();
+  return handFlow.handleCardEditClick(event);
 }
 
 async function handleCardEditorAction(action) {
-  const editor = action.closest("[data-editor-token]");
-  const token = editor?.dataset.editorToken;
-  if (!token) {
-    return;
-  }
-  if (action.dataset.cardEditAction === "cancel") {
-    editingCardToken = null;
-    cardEditError = "";
-    renderHoldingDisplay();
-    return;
-  }
-  const rank = Number(editor.querySelector("[data-card-editor-rank]")?.value);
-  const suit = Number(editor.querySelector("[data-card-editor-suit]")?.value);
-  const nextCard = { rank, suit, id: cardId({ rank, suit }) };
-  if (!handState) {
-    await applyPendingHoleCardEdit(token, nextCard);
-    return;
-  }
-  const result = applyCardEdit(token, nextCard);
-  if (!result.ok) {
-    cardEditError = result.message;
-    renderHoldingDisplay();
-    return;
-  }
-  editingCardToken = null;
-  cardEditError = "";
-  curveComputationToken += 1;
-  currentCurves = {};
-  resetWinShareState();
-  rebuildTimelineForCurrentHand();
-  finishRoundDeal();
+  return handFlow.handleCardEditorAction(action);
 }
 
-async function applyPendingHoleCardEdit(token, nextCard) {
-  const index = token === "H_1" ? 0 : 1;
-  const nextPending = [...HandModel.pendingHoleCards(handModel)];
-  nextPending[index] = nextCard;
-  if (hasDuplicateCards(nextPending.filter(Boolean))) {
-    cardEditError = "That card is already in the other hole-card slot.";
-    renderHoldingDisplay();
-    return;
-  }
-  editingCardToken = null;
-  cardEditError = "";
-  if (nextPending.every(Boolean)) {
-    await startPreflopFromHoleCards(nextPending);
-    return;
-  }
-  handModel = HandModel.setPendingHoleCard(handModel, token, nextCard);
-  syncHandStateFromModel();
-  renderHoldingDisplay();
-}
-
-function applyCardEdit(token, nextCard) {
-  try {
-    handModel = HandModel.editKnownCardModel(handModel, token, nextCard);
-  } catch (error) {
-    if (!HandModel.isShowdown(handModel) && error.message.includes("replacement villain cards")) {
-      const currentCard = cardForTokenOnPage(token, activePage);
-      const physicals = HandModel.physicalCardsFromModel(handModel);
-      const editedVisibleCards = [
-        ...physicals.hole,
-        ...physicals.flop,
-        physicals.turn,
-        physicals.river,
-      ]
-        .filter(Boolean)
-        .map((card) => (currentCard && sameCard(card, currentCard) ? nextCard : card));
-      const replacementVillain = dealCardsFromDeck(remainingDeckForKnownCards(editedVisibleCards), 2).sort(cardCompare);
-      handModel = HandModel.editKnownCardModel(handModel, token, nextCard, replacementVillain);
-    } else {
-      return { ok: false, message: error.message };
-    }
-  }
-  syncHandStateFromModel();
-  return { ok: true };
-}
-
-function rebuildTimelineForCurrentHand() {
-  const previousIndex = viewedStreetIndex;
-  handTimeline = HandModel.rebuildTimeline(handModel).map((model) => ({
-    handModel: cloneHandModel(model),
-    currentCurves: {},
-    currentWinShares: {},
-    playerActions: clonePlayerActions(playerActions),
-  }));
-  viewedStreetIndex = Math.min(Math.max(previousIndex, 0), handTimeline.length - 1);
-  handTimeline[viewedStreetIndex].handModel = cloneHandModel(handModel);
+function rebuildTimelineForCurrentHand({ viewedIndex = viewedStreetIndex, preserveStreetModels = false } = {}) {
+  return handFlow.rebuildTimelineForCurrentHand({ viewedIndex, preserveStreetModels });
 }
 
 function resetNewHand() {
-  advanceHeroPositionForNewHand();
-  handModel = HandModel.emptyHandModel();
-  syncHandStateFromModel();
-  handTimeline = [];
-  playerActions = [];
-  viewedStreetIndex = -1;
-  editingCardToken = null;
-  cardEditError = "";
-  curveComputationToken += 1;
-  currentCurves = priorCurvesByPage(dashboardData);
-  priorNaturalXMaps = priorNaturalXMapsByPage(currentCurves);
-  resetWinShareState();
-  renderPortfolioTabs();
-  renderHoldingDisplay();
-  updateRoundButton();
-  updateStreetNavButtons();
-  updatePageTabs();
-  updateLegend();
-  renderAssets();
-  if (focusedAsset) {
-    openFocus(focusedAsset);
-  }
+  return handFlow.resetNewHand();
+}
+
+async function loadRandomInterestingHand() {
+  return handFlow.loadRandomInterestingHand();
 }
 
 function dealNewRound() {
-  if (viewedStreetIndex >= 0 && viewedStreetIndex < handTimeline.length - 1) {
-    navigateToStreet(viewedStreetIndex + 1);
-    return;
-  }
-  if (handState?.round === "river") {
-    return;
-  }
-
-  const button = document.getElementById("new-round-button");
-  button.disabled = true;
-  button.textContent = "Dealing...";
-
-  setTimeout(async () => {
-    if (!handState) {
-      dealPreflopRound();
-    } else if (handState.round === "preflop") {
-      dealFlopRound();
-    } else if (handState.round === "flop") {
-      dealTurnRound();
-    } else {
-      dealRiverRound();
-    }
-  }, 20);
-}
-
-function dealPreflopRound() {
-  const selectedHoleCards = HandModel.pendingHoleCards(handModel).filter(Boolean);
-  const [h1, h2] = selectedHoleCards.length
-    ? dealHoleCardsAroundPendingCards(selectedHoleCards)
-    : dealHoleCards();
-  startPreflopFromHoleCards([h1, h2]);
-}
-
-function dealHoleCardsAroundPendingCards(selectedHoleCards) {
-  if (selectedHoleCards.length === 2) {
-    return selectedHoleCards.sort(cardCompare);
-  }
-  const [drawnCard] = dealCardsFromDeck(remainingDeckForKnownCards(selectedHoleCards), 1);
-  return [...selectedHoleCards, drawnCard].sort(cardCompare);
-}
-
-function startPreflopFromHoleCards(holeCards) {
-  const [h1, h2] = [...holeCards].sort(cardCompare);
-  const [v1, v2] = dealCardsFromDeck(remainingDeckForKnownCards([h1, h2]), 2).sort(cardCompare);
-  handModel = HandModel.startPreflopModel([h1, h2], [v1, v2]);
-  syncHandStateFromModel();
-  recordCurrentStreet();
-  curveComputationToken += 1;
-  currentCurves = {};
-  resetWinShareState();
-  queuePreflopClassDataLoad(h1, h2);
-
-  finishRoundDeal();
-}
-
-async function preloadPreflopHiddenVillainClass(h1, h2) {
-  const classKey = preflopClassKeyForCards(h1, h2);
-  if (preflopHiddenVillainClasses[classKey]) {
-    return true;
-  }
-  const payload = await readPreflopHiddenVillainClass(classKey);
-  if (payload?.curves) {
-    preflopHiddenVillainClasses[classKey] = validatePreflopHiddenVillainClassPayload(payload, {
-      bucketCount: dashboardData.bucketCount,
-      strictCounts: true,
-    }).curves;
-    refreshAfterPreflopClassPart(classKey);
-    return true;
-  }
-  return false;
-}
-
-async function preloadPreflopAggregateClass(h1, h2) {
-  const classKey = preflopClassKeyForCards(h1, h2);
-  if (preflopAggregateClasses[classKey]) {
-    return true;
-  }
-  const payload = await readPreflopAggregateClass(classKey);
-  if (payload?.aggregates) {
-    const validated = validatePreflopAggregateClassPayload(payload, {
-      bucketCount: dashboardData.bucketCount,
-      strictCounts: true,
-    });
-    preflopAggregateClasses[classKey] = {
-      source: validated.source,
-      exact: validated.exact,
-      totalCombos: validated.totalCombos,
-      bucketCount: validated.bucketCount,
-      classes: {
-        [classKey]: validated.aggregates,
-      },
-    };
-    refreshAfterPreflopClassPart(classKey);
-    return true;
-  }
-  return false;
-}
-
-async function preloadPreflopPrimaryClass(h1, h2) {
-  const classKey = preflopClassKeyForCards(h1, h2);
-  if (preflopPrimaryClasses[classKey]) {
-    return true;
-  }
-  const payload = await readPreflopPrimaryClass(classKey);
-  if (payload?.assets) {
-    preflopPrimaryClasses[classKey] = validatePreflopPrimaryClassPayload(payload, {
-      bucketCount: dashboardData.bucketCount,
-      strictCounts: true,
-    }).assets;
-    refreshAfterPreflopClassPart(classKey);
-    return true;
-  }
-  return false;
+  return handFlow.dealNewRound();
 }
 
 function refreshAfterPreflopClassPart(classKey) {
@@ -1708,155 +1226,80 @@ function refreshAfterPreflopClassPart(classKey) {
     return;
   }
   currentCurves = {};
+  actionMomentCache = new Map();
   updateLegend();
   renderAssets();
   if (focusedAsset) {
     openFocus(focusedAsset);
   }
-}
-
-async function preloadPreflopClassData(h1, h2) {
-  const [hiddenLoaded, aggregateLoaded, primaryLoaded] = await Promise.all([
-    preloadPreflopHiddenVillainClass(h1, h2),
-    preloadPreflopAggregateClass(h1, h2),
-    preloadPreflopPrimaryClass(h1, h2),
-  ]);
-  return hiddenLoaded && aggregateLoaded && primaryLoaded;
 }
 
 function queuePreflopClassDataLoad(h1, h2) {
-  if (!h1 || !h2 || preflopClassDataReady(h1, h2)) {
-    return Promise.resolve();
-  }
-  const classKey = preflopClassKeyForCards(h1, h2);
-  if (preflopClassDataLoadKey === classKey && preflopClassDataLoadPromise) {
-    return preflopClassDataLoadPromise;
-  }
-
-  const token = curveComputationToken;
-  preflopClassDataLoadKey = classKey;
-  preflopClassDataLoadPromise = preloadPreflopClassData(h1, h2).then((loaded) => {
-    if (!loaded) {
-      unavailablePreflopClassKeys.add(classKey);
-    } else {
-      unavailablePreflopClassKeys.delete(classKey);
-    }
-    if (
-      token !== curveComputationToken ||
-      !handState ||
-      handState.round !== "preflop" ||
-      preflopClassKeyForCards(handState.h1, handState.h2) !== classKey
-    ) {
-      return;
-    }
-    currentCurves = {};
-    resetWinShareState();
-    updateLegend();
-    renderAssets();
-    if (focusedAsset) {
-      openFocus(focusedAsset);
-    }
-  }).finally(() => {
-    if (preflopClassDataLoadKey === classKey) {
-      preflopClassDataLoadKey = "";
-      preflopClassDataLoadPromise = null;
-    }
+  const guard = createCurrentAsyncGuard({ purpose: "preflop-class-data", page: activePage });
+  return preflopClassStore.queueLoad(h1, h2, {
+    onLoaded: ({ classKey }) => {
+      if (
+        !guard.isCurrent() ||
+        !handState ||
+        handState.round !== "preflop" ||
+        preflopClassKeyForCards(handState.h1, handState.h2) !== classKey
+      ) {
+        return;
+      }
+      currentCurves = {};
+      actionMomentCache = new Map();
+      resetWinShareState();
+      updateLegend();
+      renderAssets();
+      if (focusedAsset) {
+        openFocus(focusedAsset);
+      }
+    },
   });
-  return preflopClassDataLoadPromise;
-}
-
-function dealTurnRound() {
-  const [turn] = dealCardsFromDeck(remainingDeckForKnownCards(allDealtCardsForDeck()), 1);
-  handModel = HandModel.dealTurnModel(handModel, turn);
-  syncHandStateFromModel();
-  recordCurrentStreet();
-  curveComputationToken += 1;
-  currentCurves = {};
-  resetWinShareState();
-
-  finishRoundDeal();
-}
-
-function dealRiverRound() {
-  const [river] = dealCardsFromDeck(remainingDeckForKnownCards(allDealtCardsForDeck()), 1);
-  handModel = HandModel.dealRiverModel(handModel, river);
-  syncHandStateFromModel();
-  recordCurrentStreet();
-  curveComputationToken += 1;
-  currentCurves = {};
-  resetWinShareState();
-
-  finishRoundDeal();
-}
-
-function dealFlopRound() {
-  const knownCards = allDealtCardsForDeck();
-  const remainingBeforeFlop = remainingDeckForKnownCards(knownCards);
-  const flop = dealCardsFromDeck(remainingBeforeFlop, 3);
-  handModel = HandModel.dealFlopModel(handModel, flop);
-  syncHandStateFromModel();
-  recordCurrentStreet();
-  curveComputationToken += 1;
-  currentCurves = {};
-  resetWinShareState();
-
-  finishRoundDeal();
-}
-
-function finishRoundDeal() {
-  renderHoldingDisplay();
-  updateRoundButton();
-  updateStreetNavButtons();
-  updatePageTabs();
-  if (shouldDeferPreflopClassData()) {
-    queuePreflopClassDataLoad(handState.h1, handState.h2);
-  }
-  if (shouldDeferCurrentPageCurves()) {
-    renderLoadingAssets();
-    scheduleCurrentPageCurves();
-    return;
-  }
-  ensureCurrentPageCurves();
-  updateLegend();
-  renderAssets();
-  updateCurrentStreetSnapshot();
-  if (focusedAsset) {
-    openFocus(focusedAsset);
-  }
 }
 
 function navigateStreet(direction) {
-  navigateToStreet(viewedStreetIndex + direction);
+  return handFlow.navigateStreet(direction);
 }
 
 function navigateToStreet(index) {
-  if (index < 0 || index >= handTimeline.length || index === viewedStreetIndex) {
-    return;
-  }
-  const snapshot = handTimeline[index];
-  handModel = cloneHandModel(snapshot.handModel);
-  syncHandStateFromModel();
-  viewedStreetIndex = index;
-  curveComputationToken += 1;
-  villainMirrorComputationScheduled = false;
-  winShareComputationScheduled = false;
-  currentCurves = cloneCacheObject(snapshot.currentCurves || {});
-  currentWinShares = cloneCacheObject(snapshot.currentWinShares || {});
-  playerActions = clonePlayerActions(snapshot.playerActions || playerActions);
-  renderCachedStreet();
+  return handFlow.navigateToStreet(index);
+}
+
+function navigateToMoment(index) {
+  return handFlow.navigateToMoment(index);
+}
+
+function navigationMoments() {
+  return handFlow.navigationMoments();
+}
+
+function currentNavigationMomentIndex() {
+  return handFlow.currentNavigationMomentIndex();
+}
+
+function isViewingLatestMoment() {
+  return handFlow.isViewingLatestMoment();
+}
+
+function actionStreetForHandModel(model) {
+  return handFlow.actionStreetForHandModel(model);
+}
+
+function actionMomentCacheKey(moment = { streetIndex: viewedStreetIndex, actionCount: currentViewedActionCount() }) {
+  return handFlow.actionMomentCacheKey(moment);
+}
+
+function saveCurrentMomentCache() {
+  return handFlow.saveCurrentMomentCache();
 }
 
 function recordCurrentStreet() {
-  const snapshot = recordStreetSnapshot(handTimeline, handModel, handState.round, playerActions);
-  handTimeline = snapshot.handTimeline;
-  viewedStreetIndex = snapshot.viewedStreetIndex;
+  return handFlow.recordCurrentStreet();
 }
 
 function updateCurrentStreetSnapshot() {
-  if (viewedStreetIndex < 0 || !handState) {
-    return;
-  }
-  handTimeline = updateStreetSnapshot(handTimeline, viewedStreetIndex, handModel, currentCurves, currentWinShares, playerActions);
+  return handFlow.updateCurrentStreetSnapshot();
 }
 
 function renderCachedStreet() {
@@ -1864,16 +1307,50 @@ function renderCachedStreet() {
   updateRoundButton();
   updateStreetNavButtons();
   updatePageTabs();
-  updateLegend();
-  renderAssets();
-  if (focusedAsset) {
+  updateLegend({ deferMissingCurves: true });
+  renderAssets({ deferMissingCurves: true });
+  if (focusedAsset && currentCurves[activePage]) {
     openFocus(focusedAsset);
   }
 }
 
 function syncHandStateFromModel() {
-  handState = HandModel.legacyHandState(handModel);
-  villainShowdown = HandModel.isShowdown(handModel);
+  return handFlow.syncHandStateFromModel();
+}
+
+function refreshVisibleHandSnapshot() {
+  return handFlow.refreshVisibleHandSnapshot();
+}
+
+function commitVisibleHandSnapshot(snapshot) {
+  return handFlow.commitVisibleHandSnapshot(snapshot);
+}
+
+function createCurrentAsyncGuard({ purpose, page = activePage } = {}) {
+  return createAsyncStateGuard({
+    captureToken: curveComputationToken,
+    captureKey: currentAsyncSnapshotKey({ purpose, page }),
+    currentToken: () => curveComputationToken,
+    currentKey: () => currentAsyncSnapshotKey({ purpose, page }),
+  });
+}
+
+function currentAsyncSnapshotKey({ purpose, page = activePage } = {}) {
+  const snapshot = refreshVisibleHandSnapshot();
+  return buildAsyncSnapshotKey({
+    assetVersion: ASSET_VERSION,
+    purpose,
+    page,
+    handModel,
+    handState,
+    viewedStreetIndex,
+    viewedActionCount: snapshot.viewedActionCount,
+    visibleActions: snapshot.visiblePlayerActions,
+    tableConfig,
+    activeVillains: activeVillainPageKeys(),
+    villainShowdown,
+    showdownHoleCardsByPlayer,
+  });
 }
 
 function shouldDeferCurrentPageCurves() {
@@ -1887,45 +1364,56 @@ function shouldDeferCurrentPageCurves() {
   );
 }
 
-function scheduleCurrentPageCurves() {
-  const token = curveComputationToken + 1;
-  curveComputationToken = token;
+function shouldRenderWithoutCurrentPageCurves() {
+  return activePage !== "config" && handState && !currentCurves[activePage];
+}
+
+function scheduleCurrentPageCurves({ delayMs = 20 } = {}) {
+  curveComputationToken += 1;
+  const guard = createCurrentAsyncGuard({ purpose: "current-page-curves", page: activePage });
   setTimeout(() => {
-    if (token !== curveComputationToken) {
+    if (!guard.isCurrent()) {
       return;
     }
     ensureCurrentPageCurves();
-    if (token !== curveComputationToken) {
+    if (!guard.isCurrent()) {
       return;
     }
     updateLegend();
     renderAssets();
+    saveCurrentMomentCache();
     if (focusedAsset) {
       openFocus(focusedAsset);
     }
-  }, 20);
+  }, delayMs);
 }
 
 function updateRoundButton() {
   const button = document.getElementById("new-round-button");
-  button.disabled = handState?.round === "river" && viewedStreetIndex >= handTimeline.length - 1;
   if (!handState) {
+    button.disabled = false;
     button.textContent = "Deal holding";
   } else if (handState.round === "preflop") {
+    button.disabled = !isViewingLatestMoment();
     button.textContent = "Deal flop";
   } else if (handState.round === "flop") {
+    button.disabled = !isViewingLatestMoment();
     button.textContent = "Deal turn";
   } else if (handState.round === "turn") {
+    button.disabled = !isViewingLatestMoment();
     button.textContent = "Deal river";
   } else {
+    button.disabled = !isViewingLatestMoment() || viewedStreetIndex >= handTimeline.length - 1;
     button.textContent = "River dealt";
   }
 }
 
 function updateStreetNavButtons() {
-  document.getElementById("previous-street-button").disabled = viewedStreetIndex <= 0;
+  const currentIndex = currentNavigationMomentIndex();
+  const momentCount = navigationMoments().length;
+  document.getElementById("previous-street-button").disabled = currentIndex <= 0;
   document.getElementById("next-street-button").disabled =
-    viewedStreetIndex < 0 || viewedStreetIndex >= handTimeline.length - 1;
+    currentIndex < 0 || currentIndex >= momentCount - 1;
 }
 
 function revealVillain() {
@@ -1933,6 +1421,7 @@ function revealVillain() {
     return;
   }
 
+  showdownHoleCardsByPlayer = assignShowdownHoleCards();
   handModel = HandModel.revealVillainModel(handModel);
   syncHandStateFromModel();
   updateCurrentStreetSnapshot();
@@ -1950,24 +1439,32 @@ function revealVillain() {
   }
 }
 
-function dealHoleCards() {
-  const firstIndex = Math.floor(Math.random() * fullDeck.length);
-  let secondIndex = Math.floor(Math.random() * (fullDeck.length - 1));
-  if (secondIndex >= firstIndex) {
-    secondIndex += 1;
+function assignShowdownHoleCards() {
+  const assigned = {
+    hero: [handState.h1, handState.h2].filter(Boolean),
+    ...showdownHoleCardsByPlayer,
+  };
+  let usedCards = [
+    ...knownCardsForHand(),
+    ...Object.values(assigned).flat(),
+  ];
+  const liveVillains = villainPageKeys().filter((page) => !playerHasFoldedByStreet(playerActions, page, "river"));
+  for (const page of liveVillains) {
+    if (assigned[page]?.length === 2) {
+      continue;
+    }
+    assigned[page] = dealCardsFromDeck(remainingDeckForKnownCards(usedCards), 2).sort(cardCompare);
+    usedCards = [...usedCards, ...assigned[page]];
   }
+  return assigned;
+}
 
-  return [fullDeck[firstIndex], fullDeck[secondIndex]].sort(cardCompare);
+function dealHoleCards() {
+  return dealCardsFromDeck(fullDeck, 2).sort(cardCompare);
 }
 
 function dealCardsFromDeck(deck, count) {
-  const remaining = [...deck];
-  const cards = [];
-  for (let cardIndex = 0; cardIndex < count; cardIndex += 1) {
-    const deckIndex = Math.floor(Math.random() * remaining.length);
-    cards.push(remaining.splice(deckIndex, 1)[0]);
-  }
-  return cards;
+  return drawCardsFromDeck(deck, count, sessionRng);
 }
 
 function knownCardsForHand() {
@@ -1977,11 +1474,21 @@ function knownCardsForHand() {
   return [handState.h1, handState.h2, ...handState.flop, handState.turn, handState.river].filter(Boolean);
 }
 
-function allDealtCardsForDeck() {
+function allDealtCardsForDeck(page = null) {
   if (!handState) {
     return [];
   }
-  return [handState.h1, handState.h2, handState.v1, handState.v2, ...handState.flop, handState.turn, handState.river].filter(Boolean);
+  return [...knownCardsForHand(), ...showdownHoleCardsForDeadCards(page)].filter(Boolean);
+}
+
+function showdownHoleCardsForDeadCards(page = null) {
+  if (!villainShowdown) {
+    return handState?.v1 && handState?.v2 ? [handState.v1, handState.v2] : [];
+  }
+  if (isOpponentPage(page)) {
+    return showdownHoleCardsForPlayer(page);
+  }
+  return Object.values(showdownHoleCardsByPlayer).flat();
 }
 
 function remainingDeckForKnownCards(knownCards) {
@@ -2051,7 +1558,7 @@ function curvesForKnownAssets(assets, remainingDeck, page) {
     aggregates,
     remainingDeck,
     knownCardsForAsset: (asset) => knownCardsForAsset(asset, page),
-    knownState: handState ? (isOpponentPage(page) ? currentKnownVillainState() : currentKnownHeroState()) : null,
+    knownState: handState ? (isOpponentPage(page) ? currentKnownVillainStateForPage(page) : currentKnownHeroState()) : null,
     aggregateTokens: aggregateTokensForPage(page),
     bucketCount: dashboardData.bucketCount,
     priorXByGradation,
@@ -2075,7 +1582,7 @@ function curvesForVillain(page = activePage) {
     return priorCurvesByPage(dashboardData)[page];
   }
   if (villainShowdown) {
-    return curvesForKnownAssets(assets, remainingDeckForKnownCards(allDealtCardsForDeck()), page);
+    return curvesForKnownAssets(assets, remainingDeckForKnownCards(allDealtCardsForDeck(page)), page);
   }
   if (preflopActionDerivedRangesActive()) {
     const weighted = weightedCurvesForRangePage({
@@ -2175,7 +1682,8 @@ function hiddenVillainCurves(assets) {
 }
 
 function weightedCurvesForRangePage({ page, assets, aggregates, range, holeTokens, deadCards }) {
-  if (!range) {
+  const knownBoardState = currentKnownBoardState();
+  if (!range || !rangeHasPositiveLegalCombo(range, knownBoardState)) {
     return null;
   }
   return weightedRangeAssetCurves({
@@ -2183,7 +1691,7 @@ function weightedCurvesForRangePage({ page, assets, aggregates, range, holeToken
     aggregates,
     range,
     available: remainingDeckForKnownCards(deadCards),
-    knownBoardState: currentKnownBoardState(),
+    knownBoardState,
     futureBoardTokens: missingBoardTokens(),
     holeTokens,
     bucketCount: dashboardData.bucketCount,
@@ -2191,8 +1699,17 @@ function weightedCurvesForRangePage({ page, assets, aggregates, range, holeToken
     chooseTable: handEvaluator.chooseTable,
     evaluateGradation,
     nsims: DEFAULT_RANGE_CURVE_SIMS,
-    seed: hashString(`${ASSET_VERSION}:range-curves:${page}:${tableConfig.playerCount}:${JSON.stringify(playerActions)}:${JSON.stringify(deadCards.map(cardId))}:${JSON.stringify(currentBoardCards().map(cardId))}`),
+    seed: hashString(`${ASSET_VERSION}:range-curves:${page}:${tableConfig.playerCount}:${JSON.stringify(visiblePlayerActionsForCurrentStreet())}:${JSON.stringify(deadCards.map(cardId))}:${JSON.stringify(currentBoardCards().map(cardId))}`),
   });
+}
+
+function rangeHasPositiveLegalCombo(range, knownBoardState = {}) {
+  const boardCards = Object.values(knownBoardState || {}).filter(Boolean);
+  return Boolean(range?.combos?.some((combo) =>
+    combo.weight > 0 &&
+    combo.cards?.length === 2 &&
+    combo.cards.every((card) => !boardCards.some((boardCard) => sameCard(card, boardCard))),
+  ));
 }
 
 function inferredRangesForCurves(page) {
@@ -2200,11 +1717,89 @@ function inferredRangesForCurves(page) {
     return {};
   }
   const deadCards = page === "range" ? currentBoardCards() : knownCardsForHand();
+  const visibleActions = visiblePlayerActionsForCurrentStreet();
   return inferPreflopRanges({
     tableConfig,
-    actions: playerActions,
+    actions: visibleActions,
     deadCards,
+    knownBoard: currentBoardCards(),
+    bucketCount: dashboardData.bucketCount,
+    evaluateGradation,
+    empiricalSpots: empiricalSpotsForCurrentActions(),
+    playerProfiles: playerProfilesForInference(),
   });
+}
+
+function ensureEmpiricalSpotsForActions() {
+  empiricalSpotStore.ensureForActions(visiblePlayerActionsForCurrentStreet());
+}
+
+function empiricalSpotsForCurrentActions() {
+  return empiricalSpotStore.spotsForActions(visiblePlayerActionsForCurrentStreet());
+}
+
+function empiricalRequestForPlayerAction(action) {
+  const position = actionPositionForPlayer(action.player);
+  if (!position) {
+    return null;
+  }
+  return empiricalSpotRequest({
+    action,
+    position,
+    playerCount: tableConfig.playerCount,
+    facingAggression: actionFacesAggression(action),
+    stakeBucket: calibrationContext.stakeBucket,
+    yearBucket: calibrationContext.yearBucket,
+  });
+}
+
+function empiricalEvidenceForRange(range) {
+  return empiricalSpotStore.evidenceForRange(range, visiblePlayerActionsForCurrentStreet());
+}
+
+function playerProfilesForInference() {
+  const profiles = {};
+  for (const [playerId, profile] of Object.entries(playerProfiles || {})) {
+    profiles[playerId] = profile;
+    const position = playerId === "hero" ? tableConfig.heroPosition : positionFromPageKey(playerId);
+    if (position) {
+      profiles[position] = profile;
+    }
+  }
+  return profiles;
+}
+
+function actionPositionForPlayer(player) {
+  return player === "hero" ? tableConfig.heroPosition : positionFromPageKey(player);
+}
+
+function actionFacesAggression(action) {
+  const streetActions = visiblePlayerActionsForCurrentStreet(action.street).filter((candidate) => candidate.street === action.street);
+  return streetActions.some((candidate) =>
+    candidate.player !== action.player &&
+    ["bet", "raise", "all-in"].includes(candidate.type) &&
+    streetActions.indexOf(candidate) < streetActions.indexOf(action),
+  );
+}
+
+
+function formatEvidenceProbabilities(probabilities = {}) {
+  return ["fold", "check", "call", "bet", "raise", "all-in"]
+    .filter((action) => Number.isFinite(probabilities[action]))
+    .map((action) => `${action}:${Math.round(probabilities[action] * 100)}%`)
+    .join(" ");
+}
+
+function formatInteger(value) {
+  return Number(value || 0).toLocaleString();
+}
+
+function invalidateRangeDerivedState() {
+  currentCurves = handState ? {} : priorCurvesByPage(dashboardData);
+  currentWinShares = handState ? {} : priorWinSharesByPage();
+  actionMomentCache = new Map();
+  resetWinShareState();
+  curveComputationToken += 1;
 }
 
 function missingBoardTokens() {
@@ -2254,21 +1849,22 @@ function currentKnownHeroState() {
 }
 
 function currentKnownVillainState() {
+  return currentKnownVillainStateForPage(activePage);
+}
+
+function currentKnownVillainStateForPage(page) {
   if (!handState) {
     return {};
   }
+  const [v1, v2] = showdownHoleCardsForPlayer(page);
   return {
-    ...(villainShowdown ? { V_1: handState.v1, V_2: handState.v2 } : {}),
+    ...(villainShowdown && v1 && v2 ? { V_1: v1, V_2: v2 } : {}),
     ...(handState.flop[0] ? { F_1: handState.flop[0] } : {}),
     ...(handState.flop[1] ? { F_2: handState.flop[1] } : {}),
     ...(handState.flop[2] ? { F_3: handState.flop[2] } : {}),
     ...(handState.turn ? { T: handState.turn } : {}),
     ...(handState.river ? { R: handState.river } : {}),
   };
-}
-
-function curveFromCounts(counts, totalCombos) {
-  return curveFromCountsPure(counts, totalCombos, dashboardData.bucketCount, priorXByGradation);
 }
 
 function evaluateGradation(cards) {
@@ -2307,7 +1903,15 @@ function legendBoundary() {
   return separator;
 }
 
-function updateLegend() {
+function updateLegend({ deferMissingCurves = false } = {}) {
+  if (deferMissingCurves && shouldRenderWithoutCurrentPageCurves()) {
+    renderLegend({
+      bands: dashboardData.categoryBands.map((band) => ({ ...band, active: true })),
+      firstActiveIndex: 0,
+      lastActiveIndex: dashboardData.categoryBands.length - 1,
+    });
+    return;
+  }
   ensureCurrentPageCurves();
   renderLegend(possibleCategoryBands());
 }
@@ -2426,240 +2030,15 @@ function categoryForGradation(gradation) {
 }
 
 function renderFocusLayer() {
-  if (document.getElementById("focus-layer")) {
-    return;
-  }
-
-  const layer = document.createElement("div");
-  layer.id = "focus-layer";
-  layer.className = "focus-layer";
-  layer.hidden = true;
-  layer.innerHTML = `
-    <div class="focus-backdrop" data-close-focus></div>
-    <section class="focus-panel" role="dialog" aria-modal="true" aria-labelledby="focus-title">
-      <button class="focus-close" type="button" data-close-focus aria-label="Close">x</button>
-      <div class="focus-header">
-        <div>
-          <span class="focus-code"></span>
-          <h2 id="focus-title"></h2>
-          <p class="focus-subtitle"></p>
-        </div>
-        <span class="focus-state"></span>
-      </div>
-      <div class="focus-chart"></div>
-    </section>
-  `;
-  layer.addEventListener("click", (event) => {
-    if (event.target.matches("[data-close-focus]")) {
-      closeFocus();
-    }
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      closeFocus();
-    }
-  });
-  document.body.appendChild(layer);
+  assetBoard.renderFocusLayer();
 }
 
 function assetSection(category, assets, allAssets = assets) {
-  const section = document.createElement("section");
-  section.className = "asset-section";
-  const activeCount = allAssets.filter((asset) => isAssetCurrentlyActive(asset)).length;
-  section.innerHTML = `
-    <div class="section-header">
-      <div>
-        <h2>${categoryLabels[category]}</h2>
-        <p>${categoryDescriptions[category]}</p>
-      </div>
-      <span class="section-count">${activeCount} active</span>
-    </div>
-    <div class="asset-grid-inner"></div>
-  `;
-
-  const grid = section.querySelector(".asset-grid-inner");
-  for (const asset of sortedAssetsByActiveState(assets)) {
-    grid.appendChild(assetCard(asset));
-  }
-
-  return section;
-}
-
-function sortedAssetsByActiveState(assets) {
-  return [
-    ...assets.filter((asset) => isAssetCurrentlyActive(asset)),
-    ...assets.filter((asset) => !isAssetCurrentlyActive(asset)),
-  ];
-}
-
-function assetCard(asset) {
-  const card = document.createElement("button");
-  const curveData = curveForAsset(asset);
-  const ceilingGradation = ceilingForOtherAssets(asset);
-  const isActive = isAssetCurrentlyActive(asset, curveData, ceilingGradation);
-  const streetBadge = asset.isAggregate
-    ? `<span class="asset-street asset-street-aggregate" title="Aggregate">A</span>`
-    : `<span class="asset-street" title="${completionStreetTitle(asset)}">${completionStreetLabel(asset)}</span>`;
-  const winBars = winBarsHtml(asset, isActive);
-  card.type = "button";
-  card.className = `asset-card ${asset.isAggregate ? "is-aggregate" : "is-primary"} ${isActive ? "is-active" : "is-inactive"}`;
-  card.addEventListener("click", () => openFocus(asset));
-  if (!curveData) {
-    const pendingCopy = pendingCurveCopy(asset);
-    card.innerHTML = `
-      <span class="asset-header">
-        <span class="asset-code">${asset.code}</span>
-        <span class="asset-name" title="${assetDisplayText(asset.name)}">${assetDisplayHtml(asset.name)}</span>
-        ${winBars}
-        <span class="asset-state">Pending</span>
-      </span>
-      <span class="asset-pending">${escapeHtml(pendingCopy.short)}</span>
-      <span class="spark-labels">
-        <span>-</span>
-        <span>${escapeHtml(pendingCopy.axis)}</span>
-        <span>-</span>
-      </span>
-    `;
-    return card;
-  }
-  const locked = isLockedCurve(curveData);
-  card.innerHTML = `
-    <span class="asset-header">
-      <span class="asset-code">${asset.code}</span>
-      <span class="asset-name" title="${assetDisplayText(asset.name)}">${assetDisplayHtml(asset.name)}</span>
-      ${winBars}
-      ${streetBadge}
-      <span class="asset-state">${isActive ? "Active" : "Inactive"}</span>
-    </span>
-    ${chartSvg({
-      curve: curveData.curve,
-      bands: dashboardData.subcategoryBands,
-      bucketCount: dashboardData.bucketCount,
-      bestGradation: curveData.bestGradation,
-      worstGradation: curveData.worstGradation,
-      ceilingGradation,
-      config: smallChart,
-      showGrid: false,
-      label: assetChartLabel(asset),
-      chartMode,
-      naturalXByGradation: naturalXByGradationForAsset(asset),
-    })}
-    <span class="spark-labels">
-      <span>${locked ? "Locked" : curveData.bestGradation}</span>
-      <span>${formatCombos(curveData.totalCombos)}</span>
-      <span>${curveData.worstGradation}</span>
-    </span>
-  `;
-  return card;
+  return assetBoard.assetSection(category, assets, allAssets);
 }
 
 function openFocus(asset) {
-  focusedAsset = asset;
-  const layer = document.getElementById("focus-layer");
-  const curveData = curveForAsset(asset);
-  const ceilingGradation = ceilingForOtherAssets(asset);
-  const isActive = isAssetCurrentlyActive(asset, curveData, ceilingGradation);
-  layer.hidden = false;
-  document.body.classList.add("has-focus-layer");
-
-  layer.querySelector(".focus-code").textContent = asset.code;
-  layer.querySelector("#focus-title").innerHTML = assetDisplayHtml(asset.name);
-  if (!curveData) {
-    const pendingCopy = pendingCurveCopy(asset);
-    layer.querySelector(".focus-subtitle").textContent = pendingCopy.long;
-    layer.querySelector(".focus-state").textContent = "Pending";
-    layer.querySelector(".focus-chart").innerHTML = `<div class="asset-pending asset-pending-large">${escapeHtml(pendingCopy.detail)}</div>`;
-    return;
-  }
-  const winShare = winShareForAsset(asset);
-  const winShareText = winShareDetailText(asset, winShare);
-  layer.querySelector(".focus-subtitle").innerHTML = asset.isAggregate
-    ? `${categoryLabels[asset.category]} · ${curveData.totalCombos.toLocaleString()} seven-card completions · ${curveData.bestGradation} to ${curveData.worstGradation}${winShareText}`
-    : `${categoryLabels[asset.category]} · ${completionStreetTitle(asset)} · ${curveData.totalCombos.toLocaleString()} combos · ${curveData.bestGradation} best to ${curveData.worstGradation} worst${winShareText}`;
-  layer.querySelector(".focus-state").textContent = isActive ? "Active" : "Inactive";
-  layer.querySelector(".focus-chart").innerHTML = isLockedCurve(curveData)
-    ? lockedResultPanel(asset, curveData, ceilingGradation)
-    : chartSvg({
-      curve: curveData.curve,
-      bands: dashboardData.subcategoryBands,
-      categoryBands: dashboardData.categoryBands,
-      bucketCount: dashboardData.bucketCount,
-      bestGradation: curveData.bestGradation,
-      worstGradation: curveData.worstGradation,
-      ceilingGradation,
-      config: largeChart,
-      showGrid: true,
-      label: `Expanded ${assetChartKind()} for ${assetDisplayText(asset.name)}`,
-      chartMode,
-      naturalXByGradation: naturalXByGradationForAsset(asset),
-    });
-}
-
-function lockedResultPanel(asset, curveData, ceilingGradation) {
-  const category = categoryForGradation(curveData.bestGradation);
-  return `
-    <div class="locked-panel" style="--locked-color: ${category.color}">
-      <span class="locked-grade">${curveData.bestGradation}</span>
-    </div>
-  `;
-}
-
-function pendingCurveCopy(asset) {
-  if (preflopActionDerivedRangesActive() && ((asset.sourcePage || activePage) === "range" || isOpponentPage(asset.sourcePage || activePage))) {
-    return {
-      short: "Range-adjusted curve pending",
-      axis: "weighted range",
-      long: "Range-adjusted curve pending",
-      detail: "Actions changed this hidden range. Equity already uses the inferred weights; exact range-weighted asset curves are not generated yet.",
-    };
-  }
-  return {
-    short: "Exact aggregate curve pending",
-    axis: "same-world min",
-    long: "Exact same-world aggregate curve pending",
-    detail: "This aggregate is visible, but its exact curve is not available for the current hidden state yet.",
-  };
-}
-
-function winBarsHtml(asset, isActive) {
-  if (asset.isAggregate && !isCategoryAggregate(asset) && !isAggregateMatchup(asset)) {
-    return "";
-  }
-  if (!isActive) {
-    return "";
-  }
-  const share = cachedWinShareForAsset(asset);
-  const signal = winShareSignal(share);
-  const title = share == null
-    ? "Win share calculating"
-    : aggregateMatchupTitle(asset, share) || `Win share ${formatPercent(share)}`;
-  const colorClass = asset.isAggregate ? "win-bars-aggregate" : "";
-  const content = signal.isCertain
-    ? '<span class="win-check" aria-hidden="true">&#10003;</span>'
-    : Array.from({ length: 5 }, (_, index) => {
-      const classes = [
-        "win-bar",
-        index < signal.level ? "is-lit" : "",
-        index < signal.deepLevel ? "is-deep" : "",
-      ].filter(Boolean).join(" ");
-      return `<span class="${classes}"></span>`;
-    }).join("");
-  return `
-    <span class="win-bars ${colorClass} ${share == null ? "is-pending" : ""}" title="${title}" aria-label="${title}">
-      ${content}
-    </span>
-  `;
-}
-
-function winShareDetailText(asset, winShare) {
-  if (winShare == null) {
-    return "";
-  }
-  const matchupTitle = aggregateMatchupTitle(asset, winShare);
-  if (matchupTitle) {
-    return ` · ${matchupTitle}`;
-  }
-  return ` · Win ${formatPercent(winShare)}`;
+  assetBoard.openFocus(asset);
 }
 
 function cachedWinShareForAsset(asset) {
@@ -2770,137 +2149,8 @@ function aggregateEquityIsEstimated(matchup) {
   return Boolean(handState && currentWinShares.hero?.aggregateEquityMeta?.[matchup]?.exact === false);
 }
 
-async function cachedOrComputedWinSharesForPage(page) {
-  const cacheKey = winShareCacheKey(page);
-  const cached = await readApiCache(cacheKey);
-  if (cached) {
-    return cached;
-  }
-  if (page === "hero" && handState?.round === "preflop") {
-    return { shares: {}, totalCombos: 0, pending: true };
-  }
-
-  const result = await computeWinSharesForPageAsync(page);
-  writeApiCache(cacheKey, result);
-  return result;
-}
-
-function winShareCacheKey(page) {
-  const state = isOpponentPage(page) ? currentKnownVillainState() : currentKnownHeroState();
-  return buildWinShareCacheKey({
-    page,
-    state,
-    street: villainShowdown ? "showdown" : "hidden",
-    isHeroPreflop: page === "hero" && handState?.round === "preflop",
-    h1: handState?.h1,
-    h2: handState?.h2,
-    dataVersion: ASSET_VERSION,
-  });
-}
-
-async function computeWinSharesForPageAsync(page) {
-  const payload = winShareWorkerPayload(page);
-  if (!computationWorker || !payload) {
-    return computeWinSharesForPage(page);
-  }
-  return computationWorker.computeWinShares(payload, () => computeWinSharesForPage(page));
-}
-
-function winShareWorkerPayload(page) {
-  if (!handState) {
-    return null;
-  }
-  const isHeroPreflop = page === "hero" && handState.round === "preflop";
-  const portfolio = isHeroPreflop ? dashboardData.portfolios.hero : portfolioForCurvePage(page);
-  const knownState = isOpponentPage(page) ? currentKnownVillainState() : currentKnownHeroState();
-  const remainingDeck = isOpponentPage(page)
-    ? remainingDeckForKnownCards(allDealtCardsForDeck())
-    : remainingDeckForKnownCards(knownCardsForHand());
-  return {
-    kind: isHeroPreflop ? "heroPreflop" : "runout",
-    bucketKeys: dashboardData.bucketKeys,
-    bucketCount: dashboardData.bucketCount,
-    portfolio,
-    knownState,
-    remainingDeck,
-    suitMapEntries: Array.from(handState.suitMap.entries()),
-    handState: {
-      ...handState,
-      suitMapEntries: Array.from(handState.suitMap.entries()),
-    },
-  };
-}
-
-function computeWinSharesForPage(page) {
-  if (page === "hero" && handState?.round === "preflop") {
-    return computePreflopHeroWinShares();
-  }
-
-  const portfolio = portfolioForCurvePage(page);
-  const knownState = isOpponentPage(page) ? currentKnownVillainState() : currentKnownHeroState();
-  const remainingDeck = isOpponentPage(page)
-    ? remainingDeckForKnownCards(allDealtCardsForDeck())
-    : remainingDeckForKnownCards(knownCardsForHand());
-  return computeRunoutWinShares({
-    portfolio,
-    knownState,
-    remainingDeck,
-    suitMap: handState?.suitMap || new Map(),
-    evaluateGradation,
-  });
-}
-
-function computePreflopHeroWinShares() {
-  return computePreflopHeroWinSharesKernel({
-    portfolio: dashboardData.portfolios.hero,
-    handState,
-    remainingDeck: remainingDeckForKnownCards(knownCardsForHand()),
-    evaluateGradationFive,
-  });
-}
-
-function naturalXByGradationForAsset(asset) {
-  const curvePage = asset.sourcePage || activePage;
-  const curveCode = asset.sourceCode || asset.code;
-  return priorNaturalXMaps[curvePage]?.[curveCode]
-    || (asset.isAggregate ? aggregatePriorXByGradation : priorXByGradation);
-}
-
-function assetChartLabel(asset) {
-  return `${assetChartKind()} for ${assetDisplayText(asset.name)}`;
-}
-
-function assetChartKind() {
-  return chartMode === "bell" ? "bell density distribution" : "cumulative distribution";
-}
-
-function completionStreetLabel(asset) {
-  if (asset.name.includes("R")) {
-    return "R";
-  }
-  if (asset.name.includes("T")) {
-    return "T";
-  }
-  return "F";
-}
-
-function completionStreetTitle(asset) {
-  const titles = {
-    F: "Full on flop",
-    T: "Full on turn",
-    R: "Full on river",
-  };
-  return titles[completionStreetLabel(asset)];
-}
-
 function closeFocus() {
-  const layer = document.getElementById("focus-layer");
-  if (!layer) {
-    return;
-  }
-  focusedAsset = null;
-  layer.hidden = true;
-  document.body.classList.remove("has-focus-layer");
+  assetBoard.closeFocus();
 }
 
 function curveForAsset(asset) {
@@ -2921,7 +2171,7 @@ function curveForAsset(asset) {
 }
 
 function preflopActionDerivedRangesActive() {
-  return Boolean(handState && playerActions.some((action) => action.street === "preflop"));
+  return Boolean(handState && visiblePlayerActionsForCurrentStreet().length);
 }
 
 function isAssetCurrentlyActive(asset, curveData = curveForAsset(asset), ceilingGradation = ceilingForOtherAssets(asset)) {
@@ -2937,6 +2187,12 @@ function isAssetCurrentlyActive(asset, curveData = curveForAsset(asset), ceiling
 function isAggregateCurrentlyActive(asset) {
   if (!handState) {
     return true;
+  }
+  if (isHandAggregateMatchup(asset) || isRangeAggregateMatchup(asset)) {
+    return !playerHasFoldedByStreet(visiblePlayerActionsForCurrentStreet(), "hero", currentActionStreet());
+  }
+  if (asset.isVillainMirror || isOpponentPage(asset.sourcePage || activePage)) {
+    return !isVillainPageFolded(asset.sourcePage || activePage);
   }
 
   const sourcePortfolio = portfolioForCurvePage(asset.sourcePage || activePage);
@@ -3003,224 +2259,6 @@ function portfolioForCurvePage(page) {
   return dashboardData.portfolios[page] || currentPortfolio();
 }
 
-function chartSvg({
-  curve,
-  bands,
-  categoryBands = [],
-  bucketCount,
-  bestGradation,
-  worstGradation,
-  ceilingGradation,
-  config,
-  showGrid,
-  label,
-  chartMode,
-  naturalXByGradation,
-}) {
-  if (bestGradation === worstGradation) {
-    return lockedResultSvg({
-      gradation: bestGradation,
-      ceilingGradation,
-      bucketCount,
-      config,
-      showGrid,
-      label,
-    });
-  }
-
-  const { width, height, padding } = config;
-  const plotWidth = width - padding.left - padding.right;
-  const plotHeight = height - padding.top - padding.bottom;
-  const domain = chartDomain(bestGradation, worstGradation, curve, chartMode, naturalXByGradation);
-  const visibleCurve = curve.filter((point) => point.gradation >= bestGradation && point.gradation <= worstGradation);
-  const ceiling = ceilingOverlay(ceilingGradation, bucketCount, curve, domain, plotWidth, plotHeight, padding, chartMode, naturalXByGradation);
-  const curvePoints = chartPoints(visibleCurve, curve, domain, config, plotWidth, plotHeight, padding, chartMode, naturalXByGradation);
-  const areaPoints = [
-    `${padding.left},${height - padding.bottom}`,
-    curvePoints,
-    `${width - padding.right},${height - padding.bottom}`,
-  ].join(" ");
-  const bandRects = bands
-    .map((band) => bandRect(band, curve, domain, plotWidth, plotHeight, padding, chartMode, naturalXByGradation, showGrid))
-    .join("");
-  const grid = showGrid ? gridLines(width, height, padding, plotHeight) : "";
-  const categoryTicks = showGrid ? categoryMarkers(categoryBands, curve, domain, plotWidth, padding, height, chartMode, naturalXByGradation) : "";
-
-  return `
-    <svg class="${showGrid ? "focus-svg" : "sparkline"}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${label}">
-      ${bandRects}
-      ${grid}
-      <line class="axis" x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" />
-      <line class="axis" x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" />
-      <polygon class="area" points="${areaPoints}" />
-      <polyline class="curve" points="${curvePoints}" />
-      ${categoryTicks}
-      ${ceiling}
-    </svg>
-  `;
-}
-
-function lockedResultSvg({ gradation, ceilingGradation, bucketCount, config, showGrid, label }) {
-  const { width, height, padding } = config;
-  const plotHeight = height - padding.top - padding.bottom;
-  const category = categoryForGradation(gradation);
-
-  return `
-    <svg class="${showGrid ? "focus-svg locked-svg" : "sparkline locked-svg"}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${label}">
-      <rect class="locked-svg-bg" style="--locked-color: ${category.color}" x="${padding.left}" y="${padding.top}" width="${width - padding.left - padding.right}" height="${plotHeight}" rx="6" />
-      <text class="locked-svg-grade" x="${width / 2}" y="${padding.top + plotHeight / 2}" dominant-baseline="middle" text-anchor="middle">${gradation}</text>
-    </svg>
-  `;
-}
-
-function chartPoints(visibleCurve, curve, domain, config, plotWidth, plotHeight, padding, chartMode, naturalXByGradation) {
-  if (chartMode === "bell") {
-    const densityPoints = bellDensityPoints(domain, config);
-    const maxDensity = Math.max(...densityPoints.map((point) => point.density), Number.EPSILON);
-    return densityPoints
-      .map((point) => `${x(normalizeX(point.value, domain), plotWidth, padding)},${y(point.density / maxDensity, plotHeight, padding)}`)
-      .join(" ");
-  }
-  const cumulativePoints = sampledChartCurve(visibleCurve, config)
-    .map((point) => `${x(normalizeX(pointX(point, chartMode, naturalXByGradation), domain), plotWidth, padding)},${y(point.probability, plotHeight, padding)}`)
-    .join(" ");
-  return `${padding.left},${padding.top + plotHeight} ${cumulativePoints}`;
-}
-
-function sampledChartCurve(visibleCurve, config) {
-  if (config !== smallChart || visibleCurve.length <= 140) {
-    return visibleCurve;
-  }
-  const pointLimit = 120;
-  const stride = Math.ceil((visibleCurve.length - 2) / (pointLimit - 2));
-  const sampled = [visibleCurve[0]];
-  for (let index = stride; index < visibleCurve.length - 1; index += stride) {
-    sampled.push(visibleCurve[index]);
-  }
-  sampled.push(visibleCurve[visibleCurve.length - 1]);
-  return sampled;
-}
-
-function bellDensityPoints(domain, config) {
-  const pointCount = config === largeChart ? 220 : 96;
-  return Array.from({ length: pointCount }, (_, index) => {
-    const ratio = pointCount === 1 ? 0 : index / (pointCount - 1);
-    const value = domain.start + ratio * (domain.end - domain.start);
-    return { value, density: normalPdf(value) };
-  });
-}
-
-function ceilingOverlay(ceilingGradation, bucketCount, curve, domain, plotWidth, plotHeight, padding, chartMode, naturalXByGradation) {
-  if (!handState || ceilingGradation == null || ceilingGradation >= bucketCount) {
-    return "";
-  }
-
-  const ceilingProbability = ceilingX(ceilingGradation, curve, chartMode, naturalXByGradation);
-  if (ceilingProbability == null) {
-    return "";
-  }
-
-  const visibleCeilingProbability = clamp(ceilingProbability, domain.start, domain.end);
-  const ceilingPosition = x(normalizeX(visibleCeilingProbability, domain), plotWidth, padding);
-  const tailWidth = Math.max(0, padding.left + plotWidth - ceilingPosition);
-  const labelPadding = 5;
-  const labelAnchor = ceilingPosition > padding.left + plotWidth - 42 ? "end" : "start";
-  const labelX = labelAnchor === "end" ? ceilingPosition - labelPadding : ceilingPosition + labelPadding;
-  const labelY = padding.top + 11;
-  const tail = tailWidth > 0 ? `
-    <rect class="ceiling-tail" x="${ceilingPosition}" y="${padding.top}" width="${tailWidth}" height="${plotHeight}">
-      <title>Worse than the current ceiling from the other assets: gradation ${ceilingGradation}</title>
-    </rect>
-  ` : "";
-  return `
-    ${tail}
-    <line class="ceiling-line" x1="${ceilingPosition}" y1="${padding.top}" x2="${ceilingPosition}" y2="${padding.top + plotHeight}">
-      <title>Current ceiling from the other assets: gradation ${ceilingGradation}</title>
-    </line>
-    <text class="ceiling-label" x="${labelX}" y="${labelY}" text-anchor="${labelAnchor}">
-      ${ceilingGradation}
-    </text>
-  `;
-}
-
-function bandRect(band, curve, domain, plotWidth, plotHeight, padding, chartMode, naturalXByGradation, includeTitle = true) {
-  const bandStart = bandStartX(band, curve, chartMode, naturalXByGradation);
-  const bandEnd = bandEndX(band, curve, chartMode, naturalXByGradation);
-  const clippedStart = Math.max(bandStart, domain.start);
-  const clippedEnd = Math.min(bandEnd, domain.end);
-  if (clippedEnd <= clippedStart) {
-    return "";
-  }
-
-  const start = x(normalizeX(clippedStart, domain), plotWidth, padding);
-  const end = x(normalizeX(clippedEnd, domain), plotWidth, padding);
-  const title = includeTitle ? `<title>${band.name}</title>` : "";
-  return `<rect class="band" style="--band-color: ${band.color}; --band-opacity: ${band.shade}" x="${start}" y="${padding.top}" width="${end - start}" height="${plotHeight}">${title}</rect>`;
-}
-
-function gridLines(width, height, padding, plotHeight) {
-  const lines = [];
-  for (let tick = 0; tick <= 10; tick += 1) {
-    const probability = tick / 10;
-    const yPos = y(probability, plotHeight, padding);
-    lines.push(`
-      <line class="grid-line" x1="${padding.left}" y1="${yPos}" x2="${width - padding.right}" y2="${yPos}" />
-      <text class="grid-label" x="${padding.left - 10}" y="${yPos + 4}" text-anchor="end">${tick * 10}%</text>
-    `);
-  }
-  return lines.join("");
-}
-
-function categoryMarkers(categoryBands, curve, domain, plotWidth, padding, height, chartMode, naturalXByGradation) {
-  return categoryBands
-    .map((band) => {
-      const rawStart = bandStartX(band, curve, chartMode, naturalXByGradation);
-      if (rawStart <= domain.start || rawStart >= domain.end) {
-        return "";
-      }
-
-      const start = x(normalizeX(rawStart, domain), plotWidth, padding);
-      return `
-        <line class="category-marker" x1="${start}" y1="${padding.top}" x2="${start}" y2="${height - padding.bottom}" />
-        <title>${band.name}</title>
-      `;
-    })
-    .join("");
-}
-
-function pointX(point, chartMode, naturalXByGradation) {
-  if (chartMode === "cdf-straight") {
-    return point.probability;
-  }
-  return naturalXByGradation.get(point.gradation) ?? point.x;
-}
-
-function assetDisplayHtml(name) {
-  return name
-    .split(" + ")
-    .map((token) => {
-      const card = cardForToken(token);
-      if (card) {
-        return cardHtml(card);
-      }
-      return compactTokenHtml(token);
-    })
-    .join("");
-}
-
-function assetDisplayText(name) {
-  return name
-    .split(" + ")
-    .map((token) => {
-      const card = cardForToken(token);
-      if (card) {
-        return cardText(card);
-      }
-      return token;
-    })
-    .join("");
-}
-
 function knownCardsForAsset(asset, page = activePage) {
   return asset.name
     .split(" + ")
@@ -3233,33 +2271,7 @@ function cardForToken(token) {
 }
 
 function cardForTokenOnPage(token, page) {
-  if (!handState) {
-    return null;
-  }
-  const position = POSITION_TOKENS[token];
-  if (!position) {
-    return null;
-  }
-
-  if (position === "f1") {
-    return handState.flop[0] || null;
-  }
-  if (position === "f2") {
-    return handState.flop[1] || null;
-  }
-  if (position === "f3") {
-    return handState.flop[2] || null;
-  }
-  if (position === "turn") {
-    return handState.turn || null;
-  }
-  if (position === "river") {
-    return handState.river || null;
-  }
-  if ((position === "v1" || position === "v2") && (!isOpponentPage(page) || !villainShowdown)) {
-    return null;
-  }
-  return handState[position] || null;
+  return assetBoard.cardForTokenOnPage(token, page);
 }
 
 function boardCardForToken(token) {
@@ -3271,31 +2283,5 @@ function isBoardToken(token) {
 }
 
 function editableCardHtml(token, card) {
-  if (editingCardToken === token) {
-    return `
-      <span class="card-editor" data-editor-token="${token}" aria-label="Edit ${compactTokenText(token)}">
-        <select class="card-editor-select" data-card-editor-rank aria-label="${compactTokenText(token)} rank">
-          ${Array.from({ length: 13 }, (_, index) => {
-            const rank = index + 1;
-            return `<option value="${rank}"${card && rank === card.rank ? " selected" : ""}>${rankSymbol(rank)}</option>`;
-          }).join("")}
-        </select>
-        <select class="card-editor-select" data-card-editor-suit aria-label="${compactTokenText(token)} suit">
-          ${[
-            [1, suitSymbol(1)],
-            [2, suitSymbol(2)],
-            [3, suitSymbol(3)],
-            [4, suitSymbol(4)],
-          ].map(([suit, label]) => `<option value="${suit}"${card && suit === card.suit ? " selected" : ""}>${label}</option>`).join("")}
-        </select>
-        <button class="card-editor-action" type="button" data-card-edit-action="save" title="Save ${compactTokenText(token)}">OK</button>
-        <button class="card-editor-action" type="button" data-card-edit-action="cancel" title="Cancel edit">X</button>
-      </span>
-    `;
-  }
-  return `
-    <button class="holding-card editable-card" type="button" data-card-token="${token}" title="Edit ${compactTokenText(token)}">
-      ${card ? cardHtml(card) : compactTokenHtml(token)}
-    </button>
-  `;
+  return assetBoard.editableCardHtml(token, card);
 }

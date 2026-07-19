@@ -93,14 +93,23 @@ async function runBrowserSmoke(url) {
   }
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
+  const httpErrors = [];
   const requestedUrls = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") {
+      if (message.text().startsWith("Failed to load resource:")) {
+        return;
+      }
       errors.push(message.text());
     }
   });
   page.on("request", (request) => requestedUrls.push(request.url()));
+  page.on("response", (response) => {
+    if (response.status() >= 400) {
+      httpErrors.push({ status: response.status(), url: response.url() });
+    }
+  });
 
   try {
     await page.goto(url, { waitUntil: "networkidle" });
@@ -118,6 +127,19 @@ async function runBrowserSmoke(url) {
     await page.waitForFunction(() => document.querySelector("#holding-display")?.textContent.includes("Holding"), null, { timeout: 10_000 });
     await page.waitForFunction(() => document.querySelectorAll(".known-card").length >= 2, null, { timeout: 10_000 });
     await page.waitForFunction(() => [...document.querySelectorAll(".win-bars")].some((element) => /Win share|equity/i.test(element.getAttribute("title") || "")), null, { timeout: 10_000 });
+
+    await page.waitForSelector('[data-instant-action="call"], [data-instant-action="check"], [data-instant-action="fold"]', { timeout: 10_000 });
+    const firstInstantAction = page.locator('[data-instant-action="call"], [data-instant-action="check"], [data-instant-action="fold"]').first();
+    await firstInstantAction.click();
+    await page.waitForFunction(() => document.querySelectorAll(".action-tag:not(.action-tag-forced)").length >= 1, null, { timeout: 10_000 });
+
+    await page.locator("#new-round-button").click();
+    await page.waitForFunction(() => document.querySelectorAll(".known-card").length >= 5, null, { timeout: 10_000 });
+    await page.waitForFunction(() => Boolean(document.querySelector('[data-action-street="flop"]')), null, { timeout: 10_000 });
+    await page.locator("#previous-street-button").click();
+    await page.waitForFunction(() => document.querySelector("#new-round-button")?.textContent.includes("Deal flop"), null, { timeout: 10_000 });
+    await page.locator("#next-street-button").click();
+    await page.waitForFunction(() => document.querySelector("#new-round-button")?.textContent.includes("Deal turn"), null, { timeout: 10_000 });
 
     if (requestedUrls.some((requestUrl) => requestUrl.includes("data/preflop_aggregate_cache.json"))) {
       throw new Error("browser requested removed monolithic preflop aggregate cache");
@@ -158,8 +180,15 @@ async function runBrowserSmoke(url) {
     if (headsUpHero !== "SB" || JSON.stringify(headsUpPages) !== JSON.stringify([["hero", "Hero"], ["villain:BB", "BB"]])) {
       throw new Error(`unexpected heads-up New hand rotation: hero=${headsUpHero} pages=${JSON.stringify(headsUpPages)}`);
     }
-    if (errors.length) {
-      throw new Error(`browser errors: ${errors.join(" | ")}`);
+    const unexpectedHttpErrors = httpErrors.filter((response) =>
+      !(response.status === 404 && response.url.includes("/api/cache/")),
+    );
+    if (errors.length || unexpectedHttpErrors.length) {
+      const parts = [
+        ...errors,
+        ...unexpectedHttpErrors.map((response) => `${response.status} ${response.url}`),
+      ];
+      throw new Error(`browser errors: ${parts.join(" | ")}`);
     }
   } finally {
     await browser.close();

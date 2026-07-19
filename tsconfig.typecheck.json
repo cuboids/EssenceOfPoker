@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "dashboard/local_storage_schema.mjs",
+    "dashboard/range_model_metadata.mjs",
+    "dashboard/session_rng.mjs",
+    "dashboard/version_registry.mjs"
+  ]
+}

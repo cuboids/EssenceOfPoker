@@ -10,6 +10,7 @@ import {
   winShareCacheKey,
 } from "../dashboard/cache_keys.mjs";
 import { preflopMultiwayEquityCacheKey } from "../dashboard/multiway_equity.mjs";
+import { VERSION_REGISTRY, cacheFamilyVersion, generatedDataVersion } from "../dashboard/version_registry.mjs";
 
 const card = (rank, suit) => ({ rank, suit, id: (rank - 1) * 4 + (suit - 1) });
 
@@ -22,6 +23,9 @@ test("preflop class keys distinguish pairs, suited hands, and offsuit hands", ()
 test("win-share cache keys are deterministic and shared by app/script callers", () => {
   assert.equal(WIN_SHARE_CACHE_VERSION, "winshare-runouts-v2");
   assert.equal(CACHE_KEY_SCHEMA_VERSION, "cache-schema-v1");
+  assert.equal(WIN_SHARE_CACHE_VERSION, cacheFamilyVersion("winShareRunouts"));
+  assert.equal(VERSION_REGISTRY.cacheFamilies.multiwayEquity, "multiway-equity-v1");
+  assert.equal(generatedDataVersion("preflopPrimaryClasses"), "preflop-primary-classes-v1");
   assert.equal(cacheNamespace("abc123"), "cache-schema-v1:abc123");
   assert.equal(
     heroPreflopWinShareCacheKey(card(3, 1), card(12, 2)),

@@ -219,7 +219,65 @@ generated data. The dashboard fetches immutable per-class payloads through:
 This keeps the browser from downloading monolithic startup JSON for data that is
 only needed after a holding class is known.
 
-Then serve the dashboard through the cache-aware local server:
+## Empirical Range Calibration
+
+The calibration pipeline is isolated in `essence_of_poker.calibration`. It is
+designed to ingest PHH-style hand histories first, then later accept commercial
+or PokerCraft-derived adapters through the same canonical schema.
+
+The durable local store is SQLite:
+
+```bash
+npm run calibration:import -- /path/to/phh-or-jsonl --db data/calibration.sqlite3
+npm run calibration:train -- --db data/calibration.sqlite3 --model-key range-action-v1 --folds 5
+```
+
+The importer preserves:
+
+- source/site and hand id;
+- played date, which is used as a noisy era/skill signal;
+- stake size, also used as a noisy skill proxy;
+- table size, positions, stacks, board, hole cards when available;
+- full street-by-street action history.
+
+Training rows are generated one action at a time. The first formal baseline is a
+deterministic hashed softmax model with hand-level cross-validation and
+temperature calibration. It predicts action probabilities rather than binary
+labels. Player archetypes are also probabilistic: each player receives a soft
+match against `complete_novice`, `calling_station`, `nit`, `tag`, `lag`, `gto`,
+and `maniac` instead of a single hard class.
+
+Run the calibration tests with:
+
+```bash
+python3 -m unittest tests.test_calibration_pipeline
+```
+
+For the PHH-scale corpus, use the compact importer and empirical baseline table
+generator:
+
+```bash
+npm run calibration:import-compact -- data/phh/poker-hand-histories.zip --db data/calibration_compact.sqlite3
+npm run calibration:baseline -- --db data/calibration_compact.sqlite3 --output essence_of_poker/data/empirical_baseline_tables.json
+```
+
+The baseline artifact contains action probabilities by street, position, player
+count, stake bucket, year bucket, facing-aggression state, sizing bucket, and
+hand class. It also includes a smoothing hierarchy and held-out fold metrics.
+
+To create a reusable subset of action-rich hands for demos, audits, and later
+model debugging:
+
+```bash
+npm run calibration:interesting -- --limit 1000 --min-score 12 --scan-limit 100000
+```
+
+This writes `data/interesting_hands.sqlite3` and `data/interesting_hands.jsonl`.
+Hands are scored for multi-street action, high aggression, all-ins, multi-raise
+streets, river decisions, large wagers, multiway pots, and complete boards.
+Omit `--scan-limit` to scan the full registered PHH source archive.
+
+Then serve the dashboard through the cache-aware local development server:
 
 ```bash
 python3 -m essence_of_poker.server --port 8765
@@ -301,6 +359,23 @@ content hash for every asset, injects the dashboard asset version into
 - `dist/dashboard/asset-manifest.json`
 - `dist/dashboard/build_info.json`
 
+Generated artifacts follow an explicit repository policy checked by:
+
+```bash
+npm run artifacts:check
+```
+
+The policy is:
+
+- `data/**`, including raw PHH archives and SQLite calibration databases, is
+  local-only and must not be tracked.
+- `dist/**` is build output and must not be tracked.
+- monolithic generated cache JSON files under `essence_of_poker/data/` are
+  local-generated intermediates and must not be tracked.
+- per-class compressed generated payloads and generated manifests under
+  `essence_of_poker/data/` may be tracked intentionally when they are part of
+  the reproducible dashboard contract.
+
 The server treats versioned static assets (`?v=...`) as immutable for one year.
 The entry HTML and cache API are served with freshness-oriented/no-store
 policies so deploys and exact cache reads are not pinned by the browser.
@@ -317,12 +392,34 @@ node scripts/prewarm_preflop_winshares_parallel.mjs --api http://127.0.0.1:8765 
 npm run prewarm:preflop-multiway -- --api http://127.0.0.1:8765 --cache-version "$VERSION" --players 2,3,4,5,6
 ```
 
-Serve the production artifact with:
+Cache-family and generated-data contract versions live in
+`dashboard/version_registry.mjs`; the backend exposes the matching registry in
+`/api/health` so deployed assets and server state can be checked together.
+
+For local smoke-testing, serve the production artifact with the development
+server:
 
 ```bash
 REDIS_URL=redis://127.0.0.1:6379/0 \
 python3 -m essence_of_poker.server --port 8765 --dashboard-root dist/dashboard
 ```
+
+For production, host the WSGI boundary under a real WSGI server and put static
+asset delivery behind the platform web server or reverse proxy:
+
+```bash
+ESSENCE_DASHBOARD_ROOT=dist/dashboard \
+REDIS_URL=redis://127.0.0.1:6379/0 \
+ESSENCE_CACHE_WRITE_TOKEN=change-me \
+gunicorn essence_of_poker.wsgi:application
+```
+
+Cache writes are intentionally guarded. Without additional configuration, the
+server accepts `PUT /api/cache/...` only from loopback clients, which is the
+right default for local development. For a non-local deployment that allows
+prewarmers or trusted clients to write cache entries, set
+`ESSENCE_CACHE_WRITE_TOKEN` and send it as `X-Essence-Cache-Token` with cache
+write requests.
 
 Then prewarm exact hero preflop win-share caches through the same cache API the
 dashboard uses:
@@ -331,6 +428,9 @@ dashboard uses:
 node scripts/prewarm_preflop_winshares.mjs --api http://127.0.0.1:8765
 npm run prewarm:preflop-multiway -- --api http://127.0.0.1:8765
 ```
+
+For token-protected cache writes, either export `ESSENCE_CACHE_WRITE_TOKEN` for
+the prewarm process or pass `--cache-write-token "$ESSENCE_CACHE_WRITE_TOKEN"`.
 
 For multi-core warmup, run the shard command shown above against the production
 server URL.
@@ -341,8 +441,9 @@ The deployment health contract is:
 curl http://127.0.0.1:8765/api/health
 ```
 
-The response includes `ok`, cache backend status, whether `REDIS_URL` was
-configured and reachable, the served dashboard root, and the build metadata.
+The response includes `ok`, cache backend status, cache-write security mode,
+whether `REDIS_URL` was configured and reachable, the served dashboard root, and
+the build metadata.
 If Redis is configured but unavailable, the server falls back to memory cache
 and reports that in `/api/health`.
 

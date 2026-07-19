@@ -7,8 +7,27 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "node --test tests/*.test.mjs",
+    "test": "node scripts/run_js_tests_tier.mjs all",
+    "test:fast": "node scripts/run_js_tests_tier.mjs fast",
+    "test:unit": "node scripts/run_js_tests_tier.mjs unit",
+    "test:integration": "node scripts/run_js_tests_tier.mjs integration",
+    "test:data": "node scripts/run_js_tests_tier.mjs data",
+    "test:browser": "node scripts/run_js_tests_tier.mjs browser",
+    "test:e2e": "node scripts/browser_smoke.mjs --dashboard-root dist/dashboard --require-browser",
+    "lint": "node scripts/lint.mjs",
+    "format:check": "node scripts/lint.mjs",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
     "verify": "bash scripts/verify.sh",
+    "artifacts:check": "python3 scripts/check_artifact_policy.py",
+    "data:check": "python3 scripts/check_generated_data_ready.py",
+    "data:generate": "python3 -m essence_of_poker.dashboard_data && node scripts/split_preflop_primary_prior_cache.mjs",
+    "calibration:import": "python3 scripts/import_hand_histories.py",
+    "calibration:import-compact": "python3 scripts/import_compact_corpus.py",
+    "calibration:interesting": "python3 scripts/build_interesting_hands.py",
+    "calibration:baseline": "python3 scripts/generate_empirical_baseline_tables.py",
+    "calibration:spots": "python3 scripts/precompute_empirical_spots.py",
+    "calibration:train": "python3 scripts/train_range_model.py",
+    "calibration:train-compact": "python3 scripts/train_compact_range_model.py",
     "prewarm:preflop-multiway": "node scripts/prewarm_preflop_multiway_equities.mjs"
   },
   "repository": {
@@ -18,12 +37,12 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/cuboids/EssenceOfPoker/issues"
   },
   "homepage": "https://github.com/cuboids/EssenceOfPoker#readme",
   "devDependencies": {
-    "fast-check": "^4.9.0"
+    "fast-check": "^4.9.0",
+    "typescript": "^7.0.2"
   }
 }

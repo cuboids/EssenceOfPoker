@@ -1,11 +1,9 @@
 import { cardKey } from "./cards.mjs";
+import { VERSION_REGISTRY, cacheFamilyVersion, cacheNamespace } from "./version_registry.mjs";
 
-export const WIN_SHARE_CACHE_VERSION = "winshare-runouts-v2";
-export const CACHE_KEY_SCHEMA_VERSION = "cache-schema-v1";
-
-export function cacheNamespace(dataVersion = "development") {
-  return `${CACHE_KEY_SCHEMA_VERSION}:${dataVersion}`;
-}
+export { cacheNamespace };
+export const WIN_SHARE_CACHE_VERSION = cacheFamilyVersion("winShareRunouts");
+export const CACHE_KEY_SCHEMA_VERSION = VERSION_REGISTRY.cacheSchema;
 
 export function preflopClassKeyForCards(first, second) {
   if (first.rank === second.rank) {

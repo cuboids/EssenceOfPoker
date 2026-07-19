@@ -1,8 +1,9 @@
 import { cardId, sameCard } from "./cards.mjs";
 import { cacheNamespace, preflopClassKeyForCards } from "./cache_keys.mjs";
+import { cacheFamilyVersion } from "./version_registry.mjs";
 
 export const DEFAULT_MULTIWAY_EQUITY_SIMS = 5_000;
-export const MULTIWAY_EQUITY_CACHE_VERSION = "multiway-equity-v1";
+export const MULTIWAY_EQUITY_CACHE_VERSION = cacheFamilyVersion("multiwayEquity");
 
 const SEVEN_CARD_INDEXES = Object.freeze([
   Object.freeze([0, 1, 2, 3, 4]),
@@ -38,10 +39,10 @@ export function computeMultiwayAggregateEquities({
 }) {
   const activeParticipants = participants.filter((participant) => !participant.folded);
   if (!activeParticipants.length) {
-    return { equities: {}, nsims: 0, exact: true };
+    return equityResult({}, 0, true, seed);
   }
   if (activeParticipants.length === 1) {
-    return { equities: { [activeParticipants[0].id]: 1 }, nsims: 1, exact: true };
+    return equityResult({ [activeParticipants[0].id]: 1 }, 1, true, seed);
   }
 
   const missingHoleCards = activeParticipants.reduce((total, participant) =>
@@ -78,7 +79,7 @@ export function computeMultiwayAggregateEquities({
   for (const id of Object.keys(shares)) {
     shares[id] /= iterations;
   }
-  return { equities: shares, nsims: iterations, exact };
+  return equityResult(shares, iterations, exact, seed);
 }
 
 export async function computeMultiwayAggregateEquitiesChunked({
@@ -93,10 +94,10 @@ export async function computeMultiwayAggregateEquitiesChunked({
 }) {
   const activeParticipants = participants.filter((participant) => !participant.folded);
   if (!activeParticipants.length) {
-    return { equities: {}, nsims: 0, exact: true };
+    return equityResult({}, 0, true, seed);
   }
   if (activeParticipants.length === 1) {
-    return { equities: { [activeParticipants[0].id]: 1 }, nsims: 1, exact: true };
+    return equityResult({ [activeParticipants[0].id]: 1 }, 1, true, seed);
   }
 
   const missingHoleCards = activeParticipants.reduce((total, participant) =>
@@ -129,7 +130,29 @@ export async function computeMultiwayAggregateEquitiesChunked({
   for (const id of Object.keys(shares)) {
     shares[id] /= iterations;
   }
-  return { equities: shares, nsims: iterations, exact };
+  return equityResult(shares, iterations, exact, seed);
+}
+
+export function equityResult(equities, nsims, exact, seed) {
+  const standardError = Object.fromEntries(
+    Object.entries(equities).map(([id, equity]) => [
+      id,
+      exact || nsims <= 0 ? 0 : Math.sqrt(Math.max(0, equity * (1 - equity)) / nsims),
+    ]),
+  );
+  const maxStandardError = Math.max(0, ...Object.values(standardError));
+  return {
+    equities,
+    nsims,
+    exact,
+    seed,
+    approximation: {
+      method: exact ? "exact" : "monte-carlo",
+      standardError,
+      maxStandardError,
+      conservativeMargin95: exact ? 0 : 1.96 * maxStandardError,
+    },
+  };
 }
 
 export function bestSevenCardGradation(cards, evaluateGradationFive) {
@@ -272,13 +295,12 @@ function sampleParticipantRange(participant, deck, usedCards, rng) {
     combo.cards.every((card) => !usedCards.some((usedCard) => sameCard(card, usedCard))),
   );
   if (!availableCombos.length) {
-    return sampleWithoutReplacement(
-      deck.filter((card) => !usedCards.some((usedCard) => sameCard(card, usedCard))),
-      2,
-      rng,
-    );
+    throw new Error(`Weighted range for ${participant.id || "participant"} has no legal positive-weight combos`);
   }
   const totalWeight = availableCombos.reduce((sum, combo) => sum + Number(combo.weight), 0);
+  if (!Number.isFinite(totalWeight) || totalWeight <= 0) {
+    throw new Error(`Weighted range for ${participant.id || "participant"} has invalid total weight`);
+  }
   let target = rng() * totalWeight;
   for (const combo of availableCombos) {
     target -= Number(combo.weight);

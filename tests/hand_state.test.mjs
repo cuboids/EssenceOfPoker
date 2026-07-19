@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   HAND_PHASES,
+  assertCanonicalHandModel,
   buildModelFromPhysicals,
   dealFlopModel,
   dealRiverModel,
@@ -22,6 +23,7 @@ const card = (rank, suit) => ({ rank, suit, id: (rank - 1) * 4 + (suit - 1) });
 test("pending hole-card edits move empty to partial_holding without a legacy hand", () => {
   const model = setPendingHoleCard(emptyHandModel(), "H_1", card(2, 1));
 
+  assert.equal(assertCanonicalHandModel(model), true);
   assert.equal(model.phase, HAND_PHASES.PARTIAL_HOLDING);
   assert.deepEqual(pendingHoleCards(model), [card(2, 1), null]);
   assert.equal(legacyHandState(model), null);
@@ -30,6 +32,7 @@ test("pending hole-card edits move empty to partial_holding without a legacy han
 test("preflop normalizes hole-card order and hero-relative suits", () => {
   const model = startPreflopModel([card(13, 4), card(1, 2)], [card(8, 1), card(9, 1)]);
 
+  assert.equal(assertCanonicalHandModel(model), true);
   assert.equal(model.phase, HAND_PHASES.PREFLOP);
   assert.equal(model.hole[0].rank, 1);
   assert.equal(model.hole[0].relativeSuit, 1);
@@ -41,6 +44,7 @@ test("flop sorting uses rank, known relative suits, then absolute suit", () => {
   const model = startPreflopModel([card(8, 3), card(12, 1)], [card(6, 1), card(7, 1)]);
   const flopModel = dealFlopModel(model, [card(1, 4), card(2, 3), card(2, 1)]);
 
+  assert.equal(assertCanonicalHandModel(flopModel), true);
   assert.deepEqual(
     flopModel.flop.map((flopCard) => [flopCard.rank, flopCard.suit, flopCard.relativeSuit]),
     [
@@ -58,6 +62,9 @@ test("turn, river, and showdown phases are explicit", () => {
   const river = dealRiverModel(turn, card(9, 1));
   const showdown = revealVillainModel(river);
 
+  for (const streetModel of [preflop, flop, turn, river, showdown]) {
+    assert.equal(assertCanonicalHandModel(streetModel), true);
+  }
   assert.equal(turn.phase, HAND_PHASES.TURN);
   assert.equal(river.phase, HAND_PHASES.RIVER);
   assert.equal(showdown.phase, HAND_PHASES.SHOWDOWN);
@@ -69,6 +76,7 @@ test("editing a known card rebuilds order and relative suits", () => {
   const preflop = startPreflopModel([card(10, 4), card(11, 4)], [card(3, 1), card(4, 1)]);
   const edited = editKnownCardModel(preflop, "H_2", card(1, 2));
 
+  assert.equal(assertCanonicalHandModel(edited), true);
   assert.deepEqual(
     edited.hole.map((holeCard) => [holeCard.rank, holeCard.suit, holeCard.relativeSuit]),
     [
@@ -98,6 +106,9 @@ test("street history is rebuilt from the canonical physical cards", () => {
 
   const timeline = rebuildTimeline(river);
 
+  for (const streetModel of timeline) {
+    assert.equal(assertCanonicalHandModel(streetModel), true);
+  }
   assert.deepEqual(timeline.map((model) => model.phase), [
     HAND_PHASES.PREFLOP,
     HAND_PHASES.FLOP,
@@ -107,4 +118,26 @@ test("street history is rebuilt from the canonical physical cards", () => {
   assert.equal(timeline[1].flop.length, 3);
   assert.equal(timeline[2].turn.rank, 9);
   assert.equal(timeline[3].river.rank, 10);
+});
+
+test("canonical auditor catches stale relative suits and unsorted street cards", () => {
+  const flop = dealFlopModel(
+    startPreflopModel([card(8, 3), card(12, 1)], [card(6, 1), card(7, 1)]),
+    [card(1, 4), card(2, 3), card(2, 1)],
+  );
+
+  assert.throws(
+    () => assertCanonicalHandModel({
+      ...flop,
+      flop: [flop.flop[1], flop.flop[0], flop.flop[2]],
+    }),
+    /canonical|order/i,
+  );
+  assert.throws(
+    () => assertCanonicalHandModel({
+      ...flop,
+      hole: [{ ...flop.hole[0], relativeSuit: 2 }, flop.hole[1]],
+    }),
+    /canonical|relative-suit/i,
+  );
 });

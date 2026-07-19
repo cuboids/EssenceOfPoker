@@ -2,6 +2,9 @@ import * as HandModel from "./hand_state.mjs";
 import { handViewFromModel } from "./hand_view.mjs";
 import { readPersistedUiState } from "./local_storage_schema.mjs";
 
+/**
+ * @param {{assetVersion?: string|number, localStorageRef?: Storage|null}} [options]
+ */
 export function createAppState({ assetVersion, localStorageRef = globalThis.localStorage } = {}) {
   const persistedUi = readPersistedUiState(localStorageRef);
   return {

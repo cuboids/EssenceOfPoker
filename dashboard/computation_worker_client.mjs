@@ -39,18 +39,32 @@ export function createComputationWorker(assetVersion, { onFailure = () => {} } =
   return {
     async computeWinShares(payload, fallback) {
       try {
-        return await postWorkerRequest(worker, pending, nextId++, "computeWinShares", payload);
+        return withComputationMeta(
+          await postWorkerRequest(worker, pending, nextId++, "computeWinShares", payload),
+          { backend: "worker" },
+        );
       } catch (error) {
         reportWorkerFailure(onFailure, "computeWinShares", error);
-        return fallback();
+        return withComputationMeta(fallback(), {
+          backend: "main-thread",
+          fallbackFromWorker: true,
+          fallbackReason: error?.message || "worker computation failed",
+        });
       }
     },
     async computeMultiwayEquities(payload, fallback) {
       try {
-        return await postWorkerRequest(worker, pending, nextId++, "computeMultiwayEquities", payload);
+        return withComputationMeta(
+          await postWorkerRequest(worker, pending, nextId++, "computeMultiwayEquities", payload),
+          { backend: "worker" },
+        );
       } catch (error) {
         reportWorkerFailure(onFailure, "computeMultiwayEquities", error);
-        return fallback();
+        return withComputationMeta(fallback(), {
+          backend: "main-thread",
+          fallbackFromWorker: true,
+          fallbackReason: error?.message || "worker computation failed",
+        });
       }
     },
     cancelPending() {
@@ -82,4 +96,17 @@ function postWorkerRequest(worker, pending, id, type, payload) {
     pending.set(id, { resolve, reject });
     worker.postMessage({ id, type, payload });
   });
+}
+
+function withComputationMeta(result, computation) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  return {
+    ...result,
+    computation: {
+      ...(result.computation || {}),
+      ...computation,
+    },
+  };
 }

@@ -5,6 +5,9 @@ import {
   updateRangeForAction,
 } from "./range_model.mjs";
 
+/**
+ * @param {{tableConfig?: any, actions?: any[], deadCards?: any[], knownBoard?: any[], bucketCount?: number, evaluateGradation?: Function|null, playerProfiles?: Record<string, any>, model?: any, empiricalSpots?: any}} [options]
+ */
 export function inferPreflopRanges({
   tableConfig,
   actions = [],

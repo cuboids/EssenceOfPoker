@@ -6,6 +6,7 @@ import {
   categoryOrder,
 } from "./app_config.mjs";
 import { createAppState, initializeHandState } from "./app_state.mjs";
+import { createCardStateController } from "./card_state_controller.mjs";
 import {
   aggregateIsActive,
   ceilingForOtherAssetsInPortfolio,
@@ -16,33 +17,34 @@ import {
   buildAsyncSnapshotKey,
   createAsyncStateGuard,
 } from "./async_state_guard.mjs";
+import { createAsyncJobRunner } from "./async_jobs.mjs";
 import {
   cardCompare,
-  cardId,
   fullDeck,
   sameCard,
 } from "./cards.mjs";
 import { preflopClassKeyForCards } from "./cache_keys.mjs";
+import { createCalibrationStatusController } from "./calibration_status_controller.mjs";
 import {
   bindDashboardControls,
 } from "./controllers/dashboard_controls.mjs";
 import { createConfigPageController } from "./config_page_controller.mjs";
 import { createPlayerActionController } from "./player_action_controller.mjs";
 import { createRangeShowdownPanel } from "./range_showdown_panel.mjs";
+import { createPageShellController } from "./page_shell_controller.mjs";
 import {
   readEmpiricalSpot,
   readHealth,
-  readPreflopAggregateClass,
-  readPreflopHiddenVillainClass,
-  readPreflopPrimaryClass,
+  readPreflopAggregateClassResult,
+  readPreflopHiddenVillainClassResult,
+  readPreflopPrimaryClassResult,
 } from "./data_client.mjs";
+import { createDisplayPreferencesController } from "./display_preferences_controller.mjs";
 import { createHandEvaluator } from "./evaluation.mjs";
 import { createEquityController } from "./equity_controller.mjs";
+import { createCurveController } from "./curve_controller.mjs";
 import { holdingDisplayModel } from "./renderers/holding_renderer.mjs";
-import {
-  curveFromTrimmedCounts,
-  curvesForKnownAssets as curvesForKnownAssetsKernel,
-} from "./curve_distributions.mjs";
+import { renderLegendHtml } from "./renderers/legend_renderer.mjs";
 import {
   validateDashboardData,
   validatePreflopHandEquityCache,
@@ -62,7 +64,6 @@ import {
 import {
   createSeededRng,
   drawCardsFromDeck,
-  hashString,
   sessionSeed,
 } from "./session_rng.mjs";
 import {
@@ -72,7 +73,6 @@ import {
 import { createPreflopClassStore } from "./stores/preflop_class_store.mjs";
 import {
   createEmpiricalSpotStore,
-  empiricalStatusLabel,
 } from "./stores/empirical_spot_store.mjs";
 import {
   persistCalibrationContext,
@@ -81,12 +81,6 @@ import {
   persistTableConfig as persistTableConfigStorage,
   persistTheme,
 } from "./local_storage_schema.mjs";
-import {
-  DEFAULT_RANGE_CURVE_SIMS,
-  curvesFromPreflopHiddenVillainCache,
-  hiddenVillainCurves as hiddenVillainCurvesKernel,
-  weightedRangeAssetCurves,
-} from "./villain_range.mjs";
 import { createComputationWorker } from "./computation_worker_client.mjs";
 import { inferPreflopRanges } from "./range_update.mjs";
 import { empiricalSpotRequest } from "./empirical_range_model.mjs";
@@ -102,7 +96,7 @@ import {
   positionFromPageKey,
 } from "./table_positions.mjs";
 
-const ASSET_VERSION = window.ESSENCE_ASSET_VERSION || Date.now();
+const ASSET_VERSION = /** @type {Window & { ESSENCE_ASSET_VERSION?: number }} */ (window).ESSENCE_ASSET_VERSION || Date.now();
 const sessionRng = createSeededRng(sessionSeed());
 const appState = initializeHandState(createAppState({ assetVersion: ASSET_VERSION }));
 
@@ -118,9 +112,9 @@ const preflopClassStore = createPreflopClassStore({
   hiddenVillainClasses: appState.data.preflopHiddenVillainClasses,
   primaryClasses: {},
   getBucketCount: () => dashboardData.bucketCount,
-  readAggregateClass: readPreflopAggregateClass,
-  readHiddenVillainClass: readPreflopHiddenVillainClass,
-  readPrimaryClass: readPreflopPrimaryClass,
+  readAggregateClassResult: readPreflopAggregateClassResult,
+  readHiddenVillainClassResult: readPreflopHiddenVillainClassResult,
+  readPrimaryClassResult: readPreflopPrimaryClassResult,
   onPartLoaded: refreshAfterPreflopClassPart,
 });
 let preflopAggregateClasses = preflopClassStore.aggregateClasses;
@@ -153,6 +147,7 @@ let hideInactiveAssets = appState.ui.hideInactiveAssets;
 let tableConfig = normalizeTableConfig(appState.ui.tableConfig);
 let calibrationContext = appState.ui.calibrationContext || { stakeBucket: "micro", yearBucket: "2009-2010" };
 let playerProfiles = appState.ui.playerProfiles || {};
+const asyncJobs = createAsyncJobRunner({ onError: recordAsyncJobFailure });
 const empiricalSpotStore = createEmpiricalSpotStore({
   readSpot: readEmpiricalSpot,
   readHealth,
@@ -167,6 +162,17 @@ const empiricalSpotStore = createEmpiricalSpotStore({
     renderHoldingDisplay();
     renderAssets();
   },
+});
+const calibrationStatus = createCalibrationStatusController({
+  calibrationContext: () => calibrationContext,
+  documentRef: document,
+  empiricalSpotStore: () => empiricalSpotStore,
+  setWorkerFailures: (value) => {
+    workerFailures = value;
+    appState.computed.workerFailures = workerFailures;
+  },
+  visiblePlayerActionsForCurrentStreet,
+  workerFailures: () => workerFailures,
 });
 const playerActionController = createPlayerActionController({
   activePage: () => activePage,
@@ -221,6 +227,15 @@ const assetBoard = createAssetBoardRenderer({
   villainShowdown: () => villainShowdown,
   winShareForAsset,
 });
+const cardState = createCardStateController({
+  activePage: () => activePage,
+  cardForTokenOnPage: (token, page) => assetBoard.cardForTokenOnPage(token, page),
+  handState: () => handState,
+  isOpponentPage,
+  showdownHoleCardsByPlayer: () => showdownHoleCardsByPlayer,
+  showdownHoleCardsForPlayer,
+  villainShowdown: () => villainShowdown,
+});
 const configPage = createConfigPageController({
   activePage: () => activePage,
   calibrationContext: () => calibrationContext,
@@ -239,6 +254,7 @@ const equityController = createEquityController({
   activePage: () => activePage,
   activeVillainPageKeys,
   allDealtCardsForDeck,
+  asyncJobs,
   assetVersion: () => ASSET_VERSION,
   computationWorker: () => computationWorker,
   createCurrentAsyncGuard,
@@ -270,6 +286,50 @@ const equityController = createEquityController({
   villainShowdown: () => villainShowdown,
   visiblePlayerActionsForCurrentStreet,
 });
+const curveController = createCurveController({
+  activePage: () => activePage,
+  aggregateTokensForPage,
+  allDealtCardsForDeck,
+  asyncJobs,
+  assetVersion: () => ASSET_VERSION,
+  baseVillainPortfolio,
+  boardCardForToken,
+  bumpCurveComputationToken: () => { curveComputationToken += 1; },
+  createCurrentAsyncGuard,
+  currentBoardCards,
+  currentCurves: () => currentCurves,
+  currentKnownBoardState,
+  currentKnownHeroState,
+  currentKnownVillainStateForPage,
+  dashboardData: () => dashboardData,
+  empiricalSpotsForCurrentActions,
+  evaluateGradation,
+  focusedAsset: () => focusedAsset,
+  handEvaluator: () => handEvaluator,
+  handState: () => handState,
+  isOpponentPage,
+  knownCardsForAsset,
+  knownCardsForHand,
+  missingBoardTokens,
+  openFocus,
+  playerProfilesForInference,
+  preflopActionDerivedRangesActive,
+  preflopAggregateClasses: () => preflopAggregateClasses,
+  preflopHiddenVillainClasses: () => preflopHiddenVillainClasses,
+  preflopPrimaryClasses: () => preflopPrimaryClasses,
+  priorAggregateCurve,
+  priorCurvesByPage,
+  priorXByGradation: () => priorXByGradation,
+  remainingDeckForKnownCards,
+  renderAssets,
+  saveCurrentMomentCache,
+  tableConfig: () => tableConfig,
+  updateCurrentStreetSnapshot,
+  updateLegend,
+  villainPageKeys,
+  villainShowdown: () => villainShowdown,
+  visiblePlayerActionsForCurrentStreet,
+});
 const rangeShowdownPanel = createRangeShowdownPanel({
   actionPlayerLabel,
   actionPlayerOrder,
@@ -288,6 +348,35 @@ const rangeShowdownPanel = createRangeShowdownPanel({
   showdownHoleCardsForPlayer,
   tableConfig: () => tableConfig,
   visiblePlayerActionsForCurrentStreet,
+});
+const displayPreferences = createDisplayPreferencesController({
+  documentRef: document,
+  focusedAsset: () => focusedAsset,
+  openFocus,
+  persistTheme: (enabled) => persistTheme(localStorage, enabled),
+  renderAssets,
+  setChartMode: (value) => { chartMode = value; },
+  setUseDarkTheme: (value) => { useDarkTheme = value; },
+  useDarkTheme: () => useDarkTheme,
+});
+const pageShell = createPageShellController({
+  activePage: () => activePage,
+  closeFocus,
+  dashboardData: () => dashboardData,
+  documentRef: document,
+  ensureCurrentPageCurves,
+  handState: () => handState,
+  isVillainPageFolded,
+  renderAssets,
+  renderHoldingDisplay,
+  revealVillain,
+  scheduleCurrentPageCurves,
+  setActivePage: (value) => { activePage = value; },
+  setFocusedAsset: (value) => { focusedAsset = value; },
+  shouldDeferCurrentPageCurves,
+  updateLegend,
+  villainPageKeys,
+  villainShowdown: () => villainShowdown,
 });
 const handFlow = createHandFlowController({
   activePage: () => activePage,
@@ -433,62 +522,31 @@ function renderDashboard(data) {
 }
 
 function changeChartMode(event) {
-  chartMode = event.target.value;
-  renderAssets();
-  if (focusedAsset) {
-    openFocus(focusedAsset);
-  }
+  displayPreferences.changeChartMode(event);
 }
 
 function toggleThemeMode(event) {
-  useDarkTheme = event.target.checked;
-  persistTheme(localStorage, useDarkTheme);
-  applyThemeMode();
+  displayPreferences.toggleThemeMode(event);
 }
 
 function applyThemeMode() {
-  document.body.classList.toggle("theme-dark", useDarkTheme);
-  document.getElementById("theme-toggle").checked = useDarkTheme;
+  displayPreferences.applyThemeMode();
 }
 
 async function hydrateEmpiricalCalibrationHealth() {
-  await empiricalSpotStore.hydrateHealth();
+  await calibrationStatus.hydrateEmpiricalCalibrationHealth();
 }
 
 function renderCalibrationStatus() {
-  const container = document.getElementById("calibration-status");
-  if (!container) {
-    return;
-  }
-  const health = empiricalSpotStore.health?.data?.empiricalCalibration;
-  const actions = visiblePlayerActionsForCurrentStreet();
-  const summary = empiricalSpotStore.summary(actions);
-  const status = empiricalSpotStore.status(actions);
-  const corpusLabel = !empiricalSpotStore.health
-    ? "Checking empirical calibration"
-    : health?.ok
-      ? `${formatInteger(health.hands)} hands · ${formatInteger(health.actions)} actions`
-      : "Empirical calibration unavailable";
-  const spotLabel = summary.total
-    ? `${summary.ready}/${summary.total} action spots loaded${summary.pending ? " · loading" : ""}`
-    : "No action spots yet";
-  const latestWorkerFailure = workerFailures.at(-1);
-  const workerStatus = latestWorkerFailure
-    ? `<span class="empirical-pill fallback" title="${escapeHtml(latestWorkerFailure.message)}">Worker fallback</span>`
-    : "";
-  container.innerHTML = `
-    <span class="empirical-pill ${status}">${escapeHtml(empiricalStatusLabel(status))}</span>
-    <span>${escapeHtml(corpusLabel)}</span>
-    <span>${escapeHtml(calibrationContext.stakeBucket)} · ${escapeHtml(calibrationContext.yearBucket)}</span>
-    <span>${escapeHtml(spotLabel)}</span>
-    ${workerStatus}
-  `;
+  calibrationStatus.renderCalibrationStatus();
 }
 
 function recordWorkerFailure(failure) {
-  workerFailures = [...workerFailures.slice(-4), failure];
-  appState.computed.workerFailures = workerFailures;
-  renderCalibrationStatus();
+  calibrationStatus.recordWorkerFailure(failure);
+}
+
+function recordAsyncJobFailure(failure) {
+  calibrationStatus.recordAsyncJobFailure(failure);
 }
 
 function resetWinShareState() {
@@ -582,56 +640,15 @@ function baseVillainPortfolio() {
 }
 
 function renderPortfolioTabs() {
-  const container = document.getElementById("portfolio-tabs");
-  const villainTabs = villainPageKeys()
-    .map((page) => `
-      <button
-        class="page-tab ${isVillainPageFolded(page) ? "is-folded" : ""}"
-        type="button"
-        data-page="${page}"
-        title="${isVillainPageFolded(page) ? `${dashboardData.portfolios[page].name} folded` : dashboardData.portfolios[page].name}"
-      >
-        ${dashboardData.portfolios[page].name}
-      </button>
-    `)
-    .join("");
-  container.innerHTML = `
-    <button class="page-tab" id="hero-page-button" type="button" data-page="hero">Hero</button>
-    ${villainTabs}
-    <button class="control-button showdown-button" id="showdown-button" type="button" hidden>Showdown</button>
-  `;
-  for (const button of container.querySelectorAll("[data-page]")) {
-    button.addEventListener("click", () => switchPage(button.dataset.page));
-  }
-  document.getElementById("showdown-button").addEventListener("click", revealVillain);
+  pageShell.renderPortfolioTabs();
 }
 
 function switchPage(page) {
-  if (page !== "config" && !dashboardData.portfolios[page]) {
-    return;
-  }
-  activePage = page;
-  focusedAsset = null;
-  closeFocus();
-  renderHoldingDisplay();
-  updatePageTabs();
-  if (shouldDeferCurrentPageCurves()) {
-    renderLoadingAssets();
-    scheduleCurrentPageCurves();
-    return;
-  }
-  ensureCurrentPageCurves();
-  updateLegend();
-  renderAssets();
+  pageShell.switchPage(page);
 }
 
 function updatePageTabs() {
-  for (const button of document.querySelectorAll("[data-page]")) {
-    button.classList.toggle("is-active", button.dataset.page === activePage);
-    button.classList.toggle("is-folded", isVillainPageFolded(button.dataset.page));
-  }
-  const showdownButton = document.getElementById("showdown-button");
-  showdownButton.hidden = !(handState?.round === "river" && !villainShowdown);
+  pageShell.updatePageTabs();
 }
 
 function shouldDeferPreflopClassData() {
@@ -744,66 +761,7 @@ function aggregateEquitiesAreReady() {
 }
 
 function ensureHeroMirrorCurves() {
-  if (activePage !== "hero") {
-    return;
-  }
-  ensureHeroRangeCurves();
-  ensureHeroVillainAggregateCurves();
-}
-
-function ensureHeroRangeCurves() {
-  if (currentCurves.range) {
-    return;
-  }
-  if (!handState || currentBoardCards().length === 0) {
-    currentCurves.range = curvesForRangeAggregate();
-    updateCurrentStreetSnapshot();
-    return;
-  }
-  scheduleHeroMirrorCurves("range");
-}
-
-function ensureHeroVillainAggregateCurves() {
-  const pages = villainPageKeys().filter((page) => !currentCurves[page]);
-  if (!pages.length) {
-    return;
-  }
-  if (!handState || currentBoardCards().length === 0 || villainShowdown) {
-    for (const page of pages) {
-      currentCurves[page] = curvesForVillain(page);
-    }
-    updateCurrentStreetSnapshot();
-    return;
-  }
-  scheduleHeroMirrorCurves(pages);
-}
-
-function scheduleHeroMirrorCurves(pageOrPages) {
-  if (villainMirrorComputationScheduled) {
-    return;
-  }
-  const pages = Array.isArray(pageOrPages) ? pageOrPages : [pageOrPages];
-  const guards = new Map(pages.map((page) => [page, createCurrentAsyncGuard({ purpose: "hero-mirror-curves", page })]));
-  villainMirrorComputationScheduled = true;
-  setTimeout(() => {
-    villainMirrorComputationScheduled = false;
-    if (!pages.some((page) => guards.get(page).isCurrent())) {
-      return;
-    }
-    for (const page of pages) {
-      if (guards.get(page).isCurrent() && !currentCurves[page]) {
-        currentCurves[page] = page === "range" ? curvesForRangeAggregate() : curvesForVillain(page);
-      }
-    }
-    updateCurrentStreetSnapshot();
-    if (activePage === "hero") {
-      updateLegend();
-      renderAssets();
-      if (focusedAsset?.sourcePage && pages.includes(focusedAsset.sourcePage)) {
-        openFocus(focusedAsset);
-      }
-    }
-  }, 20);
+  return curveController.ensureHeroMirrorCurves();
 }
 
 function renderConfigPage() {
@@ -870,13 +828,7 @@ function renderLoadingAssets({
   title = "Calculating villain distributions",
   copy = "The tab is active. Hidden-card curves are being rebuilt from hero's perspective.",
 } = {}) {
-  const container = document.getElementById("asset-grid");
-  container.innerHTML = `
-    <section class="asset-loading" aria-live="polite">
-      <span class="asset-loading-title">${escapeHtml(title)}</span>
-      <span class="asset-loading-copy">${escapeHtml(copy)}</span>
-    </section>
-  `;
+  pageShell.renderLoadingAssets({ title, copy });
 }
 
 function renderHoldingDisplay() {
@@ -1128,6 +1080,9 @@ function commitVisibleHandSnapshot(snapshot) {
   return handFlow.commitVisibleHandSnapshot(snapshot);
 }
 
+/**
+ * @param {{ purpose?: string, page?: string }} [options]
+ */
 function createCurrentAsyncGuard({ purpose, page = activePage } = {}) {
   return createAsyncStateGuard({
     captureToken: curveComputationToken,
@@ -1137,6 +1092,9 @@ function createCurrentAsyncGuard({ purpose, page = activePage } = {}) {
   });
 }
 
+/**
+ * @param {{ purpose?: string, page?: string }} [options]
+ */
 function currentAsyncSnapshotKey({ purpose, page = activePage } = {}) {
   const snapshot = refreshVisibleHandSnapshot();
   return buildAsyncSnapshotKey({
@@ -1156,42 +1114,22 @@ function currentAsyncSnapshotKey({ purpose, page = activePage } = {}) {
 }
 
 function shouldDeferCurrentPageCurves() {
-  return (
-    isOpponentPage(activePage) &&
-    handState &&
-    !villainShowdown &&
-    currentBoardCards().length > 0 &&
-    !preflopActionDerivedRangesActive() &&
-    !currentCurves[activePage]
-  );
+  return curveController.shouldDeferCurrentPageCurves();
 }
 
 function shouldRenderWithoutCurrentPageCurves() {
-  return activePage !== "config" && handState && !currentCurves[activePage];
+  return curveController.shouldRenderWithoutCurrentPageCurves();
 }
 
 function scheduleCurrentPageCurves({ delayMs = 20 } = {}) {
-  curveComputationToken += 1;
-  const guard = createCurrentAsyncGuard({ purpose: "current-page-curves", page: activePage });
-  setTimeout(() => {
-    if (!guard.isCurrent()) {
-      return;
-    }
-    ensureCurrentPageCurves();
-    if (!guard.isCurrent()) {
-      return;
-    }
-    updateLegend();
-    renderAssets();
-    saveCurrentMomentCache();
-    if (focusedAsset) {
-      openFocus(focusedAsset);
-    }
-  }, delayMs);
+  return curveController.scheduleCurrentPageCurves({ delayMs });
 }
 
 function updateRoundButton() {
-  const button = document.getElementById("new-round-button");
+  const button = /** @type {HTMLButtonElement | null} */ (document.getElementById("new-round-button"));
+  if (!button) {
+    return;
+  }
   if (!handState) {
     button.disabled = false;
     button.textContent = "Deal holding";
@@ -1213,9 +1151,14 @@ function updateRoundButton() {
 function updateStreetNavButtons() {
   const currentIndex = currentNavigationMomentIndex();
   const momentCount = navigationMoments().length;
-  document.getElementById("previous-street-button").disabled = currentIndex <= 0;
-  document.getElementById("next-street-button").disabled =
-    currentIndex < 0 || currentIndex >= momentCount - 1;
+  const previousButton = /** @type {HTMLButtonElement | null} */ (document.getElementById("previous-street-button"));
+  const nextButton = /** @type {HTMLButtonElement | null} */ (document.getElementById("next-street-button"));
+  if (previousButton) {
+    previousButton.disabled = currentIndex <= 0;
+  }
+  if (nextButton) {
+    nextButton.disabled = currentIndex < 0 || currentIndex >= momentCount - 1;
+  }
 }
 
 function revealVillain() {
@@ -1270,266 +1213,31 @@ function dealCardsFromDeck(deck, count) {
 }
 
 function knownCardsForHand() {
-  if (!handState) {
-    return [];
-  }
-  return [handState.h1, handState.h2, ...handState.flop, handState.turn, handState.river].filter(Boolean);
+  return cardState.knownCardsForHand();
 }
 
 function allDealtCardsForDeck(page = null) {
-  if (!handState) {
-    return [];
-  }
-  return [...knownCardsForHand(), ...showdownHoleCardsForDeadCards(page)].filter(Boolean);
+  return cardState.allDealtCardsForDeck(page);
 }
 
 function showdownHoleCardsForDeadCards(page = null) {
-  if (!villainShowdown) {
-    return handState?.v1 && handState?.v2 ? [handState.v1, handState.v2] : [];
-  }
-  if (isOpponentPage(page)) {
-    return showdownHoleCardsForPlayer(page);
-  }
-  return Object.values(showdownHoleCardsByPlayer).flat();
+  return cardState.showdownHoleCardsForDeadCards(page);
 }
 
 function remainingDeckForKnownCards(knownCards) {
-  return fullDeck.filter((card) => !knownCards.some((knownCard) => sameCard(card, knownCard)));
+  return cardState.remainingDeckForKnownCards(knownCards);
 }
 
 function ensureCurrentPageCurves() {
-  if (currentCurves[activePage]) {
-    return;
-  }
-  if (!handState) {
-    currentCurves[activePage] = priorCurvesByPage(dashboardData)[activePage];
-    return;
-  }
-  if (isOpponentPage(activePage)) {
-    currentCurves[activePage] = curvesForVillain(activePage);
-    return;
-  }
-  if (handState.round === "preflop") {
-    currentCurves.hero = curvesForHeroPreflop();
-    return;
-  }
-  currentCurves.hero = curvesForKnownAssets(dashboardData.portfolios.hero.assets, remainingDeckForKnownCards(knownCardsForHand()), "hero");
-}
-
-function curvesForHeroPreflop() {
-  const classKey = preflopClassKeyForCards(handState.h1, handState.h2);
-  const portfolio = dashboardData.portfolios.hero;
-  const curves = { ...priorCurvesByPage(dashboardData).hero };
-  const primaryClass = preflopPrimaryClasses[classKey];
-  if (primaryClass) {
-    for (const asset of portfolio.assets) {
-      if (primaryClass[asset.code]) {
-        curves[asset.code] = curveFromTrimmedCounts(
-          primaryClass[asset.code],
-          primaryClass[asset.code].totalCombos,
-          dashboardData.bucketCount,
-          priorXByGradation,
-        );
-      }
-    }
-  }
-
-  const aggregateClass = preflopAggregateClasses[classKey]?.classes?.[classKey];
-  if (aggregateClass) {
-    for (const aggregate of portfolio.aggregates || []) {
-      if (aggregateClass[aggregate.code]) {
-        curves[aggregate.code] = curveFromTrimmedCounts(
-          aggregateClass[aggregate.code],
-          preflopAggregateClasses[classKey].totalCombos,
-          dashboardData.bucketCount,
-          priorXByGradation,
-        );
-      } else if (aggregate.code === "AGG_ZERO" && curves["1.1"]) {
-        curves[aggregate.code] = curves["1.1"];
-      }
-    }
-  }
-  return curves;
-}
-
-function curvesForKnownAssets(assets, remainingDeck, page) {
-  const portfolio = dashboardData.portfolios[page];
-  const aggregates = portfolio.aggregates || [];
-  return curvesForKnownAssetsKernel({
-    assets,
-    aggregates,
-    remainingDeck,
-    knownCardsForAsset: (asset) => knownCardsForAsset(asset, page),
-    knownState: handState ? (isOpponentPage(page) ? currentKnownVillainStateForPage(page) : currentKnownHeroState()) : null,
-    aggregateTokens: aggregateTokensForPage(page),
-    bucketCount: dashboardData.bucketCount,
-    priorXByGradation,
-    evaluateGradation,
-    preflopPrimaryCache: page === "hero" && handState?.round === "preflop"
-      ? preflopPrimaryClasses[preflopClassKeyForCards(handState.h1, handState.h2)]
-      : null,
-    preflopAggregateCache: page === "hero" && handState?.round === "preflop"
-      ? preflopAggregateClasses[preflopClassKeyForCards(handState.h1, handState.h2)]
-      : null,
-    preflopClassKey: page === "hero" && handState?.round === "preflop"
-      ? preflopClassKeyForCards(handState.h1, handState.h2)
-      : null,
-  });
+  return curveController.ensureCurrentPageCurves();
 }
 
 function curvesForVillain(page = activePage) {
-  const assets = dashboardData.portfolios[page]?.assets || baseVillainPortfolio().assets;
-  const aggregates = dashboardData.portfolios[page]?.aggregates || baseVillainPortfolio().aggregates || [];
-  if (!handState) {
-    return priorCurvesByPage(dashboardData)[page];
-  }
-  if (villainShowdown) {
-    return curvesForKnownAssets(assets, remainingDeckForKnownCards(allDealtCardsForDeck(page)), page);
-  }
-  if (preflopActionDerivedRangesActive()) {
-    const weighted = weightedCurvesForRangePage({
-      page,
-      assets,
-      aggregates,
-      range: inferredRangesForCurves(page)?.[page],
-      holeTokens: ["V_1", "V_2"],
-      deadCards: knownCardsForHand(),
-    });
-    if (weighted) {
-      return weighted;
-    }
-  }
-  if (currentBoardCards().length === 0) {
-    return preflopHiddenVillainCurves(assets);
-  }
-
-  return hiddenVillainCurves(assets);
+  return curveController.curvesForVillain(page);
 }
 
 function curvesForRangeAggregate() {
-  if (!handState) {
-    return priorCurvesByPage(dashboardData).hero;
-  }
-  if (preflopActionDerivedRangesActive()) {
-    const portfolio = dashboardData.portfolios.hero;
-    const weighted = weightedCurvesForRangePage({
-      page: "range",
-      assets: portfolio.assets,
-      aggregates: portfolio.aggregates || [],
-      range: inferredRangesForCurves("range")?.hero,
-      holeTokens: ["H_1", "H_2"],
-      deadCards: currentBoardCards(),
-    });
-    if (weighted) {
-      return weighted;
-    }
-  }
-  const page = villainPageKeys()[0];
-  const assets = dashboardData.portfolios[page]?.assets || baseVillainPortfolio().assets;
-  if (currentBoardCards().length === 0) {
-    return preflopHiddenVillainCurves(assets);
-  }
-  return hiddenVillainCurves(assets);
-}
-
-function preflopHiddenVillainCurves(assets) {
-  const cached = cachedPreflopHiddenVillainCurves(assets);
-  if (cached) {
-    return cached;
-  }
-  return priorHiddenVillainCurves(assets);
-}
-
-function priorHiddenVillainCurves(assets) {
-  const page = villainPageKeys()[0];
-  const prior = priorCurvesByPage(dashboardData)[page] || priorCurvesByPage(dashboardData).hero;
-  const aggregates = baseVillainPortfolio().aggregates || [];
-  return Object.fromEntries(
-    [...assets, ...aggregates].map((asset) => [asset.code, prior[asset.code] || priorAggregateCurve(dashboardData)]),
-  );
-}
-
-function cachedPreflopHiddenVillainCurves(assets) {
-  if (!handState?.h1 || !handState?.h2) {
-    return null;
-  }
-  const cachedClass = preflopHiddenVillainClasses[preflopClassKeyForCards(handState.h1, handState.h2)];
-  if (!cachedClass) {
-    return null;
-  }
-  return curvesFromPreflopHiddenVillainCache({
-    assets,
-    aggregates: baseVillainPortfolio().aggregates || [],
-    cachedClass,
-    bucketCount: dashboardData.bucketCount,
-    priorXByGradation,
-  });
-}
-
-function hiddenVillainCurves(assets) {
-  const available = remainingDeckForKnownCards(knownCardsForHand());
-  const futureBoardTokens = ["T", "R"].filter((token) => !boardCardForToken(token));
-  const aggregates = baseVillainPortfolio().aggregates || [];
-  return hiddenVillainCurvesKernel({
-    assets,
-    aggregates,
-    available,
-    knownBoardState: currentKnownBoardState(),
-    futureBoardTokens,
-    bucketCount: dashboardData.bucketCount,
-    priorXByGradation,
-    chooseTable: handEvaluator.chooseTable,
-    evaluateGradation,
-  });
-}
-
-function weightedCurvesForRangePage({ page, assets, aggregates, range, holeTokens, deadCards }) {
-  const knownBoardState = currentKnownBoardState();
-  if (!range || !rangeHasPositiveLegalCombo(range, knownBoardState)) {
-    return null;
-  }
-  return weightedRangeAssetCurves({
-    assets,
-    aggregates,
-    range,
-    available: remainingDeckForKnownCards(deadCards),
-    knownBoardState,
-    futureBoardTokens: missingBoardTokens(),
-    holeTokens,
-    bucketCount: dashboardData.bucketCount,
-    priorXByGradation,
-    chooseTable: handEvaluator.chooseTable,
-    evaluateGradation,
-    nsims: DEFAULT_RANGE_CURVE_SIMS,
-    seed: hashString(`${ASSET_VERSION}:range-curves:${page}:${tableConfig.playerCount}:${JSON.stringify(visiblePlayerActionsForCurrentStreet())}:${JSON.stringify(deadCards.map(cardId))}:${JSON.stringify(currentBoardCards().map(cardId))}`),
-  });
-}
-
-function rangeHasPositiveLegalCombo(range, knownBoardState = {}) {
-  const boardCards = Object.values(knownBoardState || {}).filter(Boolean);
-  return Boolean(range?.combos?.some((combo) =>
-    combo.weight > 0 &&
-    combo.cards?.length === 2 &&
-    combo.cards.every((card) => !boardCards.some((boardCard) => sameCard(card, boardCard))),
-  ));
-}
-
-function inferredRangesForCurves(page) {
-  if (!preflopActionDerivedRangesActive()) {
-    return {};
-  }
-  const deadCards = page === "range" ? currentBoardCards() : knownCardsForHand();
-  const visibleActions = visiblePlayerActionsForCurrentStreet();
-  return inferPreflopRanges({
-    tableConfig,
-    actions: visibleActions,
-    deadCards,
-    knownBoard: currentBoardCards(),
-    bucketCount: dashboardData.bucketCount,
-    evaluateGradation,
-    empiricalSpots: empiricalSpotsForCurrentActions(),
-    playerProfiles: playerProfilesForInference(),
-  });
+  return curveController.curvesForRangeAggregate();
 }
 
 function ensureEmpiricalSpotsForActions() {
@@ -1592,10 +1300,6 @@ function formatEvidenceProbabilities(probabilities = {}) {
     .join(" ");
 }
 
-function formatInteger(value) {
-  return Number(value || 0).toLocaleString();
-}
-
 function invalidateRangeDerivedState() {
   currentCurves = handState ? {} : priorCurvesByPage(dashboardData);
   currentWinShares = handState ? {} : priorWinSharesByPage();
@@ -1605,68 +1309,27 @@ function invalidateRangeDerivedState() {
 }
 
 function missingBoardTokens() {
-  const state = currentKnownBoardState();
-  return ["F_1", "F_2", "F_3", "T", "R"].filter((token) => !state[token]);
+  return cardState.missingBoardTokens();
 }
 
 function aggregateTokensForPage(page) {
-  return isOpponentPage(page)
-    ? ["V_1", "V_2", "F_1", "F_2", "F_3", "T", "R"]
-    : ["H_1", "H_2", "F_1", "F_2", "F_3", "T", "R"];
+  return cardState.aggregateTokensForPage(page);
 }
 
 function currentKnownBoardState() {
-  const state = {};
-  if (handState.flop[0]) {
-    state.F_1 = handState.flop[0];
-  }
-  if (handState.flop[1]) {
-    state.F_2 = handState.flop[1];
-  }
-  if (handState.flop[2]) {
-    state.F_3 = handState.flop[2];
-  }
-  if (handState.turn) {
-    state.T = handState.turn;
-  }
-  if (handState.river) {
-    state.R = handState.river;
-  }
-  return state;
+  return cardState.currentKnownBoardState();
 }
 
 function currentKnownHeroState() {
-  if (!handState) {
-    return {};
-  }
-  return {
-    H_1: handState.h1,
-    H_2: handState.h2,
-    ...(handState.flop[0] ? { F_1: handState.flop[0] } : {}),
-    ...(handState.flop[1] ? { F_2: handState.flop[1] } : {}),
-    ...(handState.flop[2] ? { F_3: handState.flop[2] } : {}),
-    ...(handState.turn ? { T: handState.turn } : {}),
-    ...(handState.river ? { R: handState.river } : {}),
-  };
+  return cardState.currentKnownHeroState();
 }
 
 function currentKnownVillainState() {
-  return currentKnownVillainStateForPage(activePage);
+  return cardState.currentKnownVillainState();
 }
 
 function currentKnownVillainStateForPage(page) {
-  if (!handState) {
-    return {};
-  }
-  const [v1, v2] = showdownHoleCardsForPlayer(page);
-  return {
-    ...(villainShowdown && v1 && v2 ? { V_1: v1, V_2: v2 } : {}),
-    ...(handState.flop[0] ? { F_1: handState.flop[0] } : {}),
-    ...(handState.flop[1] ? { F_2: handState.flop[1] } : {}),
-    ...(handState.flop[2] ? { F_3: handState.flop[2] } : {}),
-    ...(handState.turn ? { T: handState.turn } : {}),
-    ...(handState.river ? { R: handState.river } : {}),
-  };
+  return cardState.currentKnownVillainStateForPage(page);
 }
 
 function evaluateGradation(cards) {
@@ -1678,31 +1341,7 @@ function evaluateGradationFive(first, second, third, fourth, fifth) {
 }
 
 function renderLegend({ bands, firstActiveIndex, lastActiveIndex }) {
-  const legend = document.getElementById("legend");
-  legend.innerHTML = "";
-
-  for (const [index, band] of bands.entries()) {
-    if (index === firstActiveIndex) {
-      legend.appendChild(legendBoundary());
-    }
-
-    const item = document.createElement("div");
-    item.className = `legend-item ${band.active ? "is-active" : "is-inactive"}`;
-    item.title = band.name;
-    item.innerHTML = `<span class="legend-swatch" style="--swatch-color: ${band.color}"></span><span>${band.name}</span>`;
-    legend.appendChild(item);
-
-    if (index === lastActiveIndex) {
-      legend.appendChild(legendBoundary());
-    }
-  }
-}
-
-function legendBoundary() {
-  const separator = document.createElement("span");
-  separator.className = "legend-ceiling-separator";
-  separator.setAttribute("aria-hidden", "true");
-  return separator;
+  renderLegendHtml(document, { bands, firstActiveIndex, lastActiveIndex });
 }
 
 function updateLegend({ deferMissingCurves = false } = {}) {
@@ -1802,10 +1441,7 @@ function opponentPossibleCategories(existingCategories = new Set()) {
 }
 
 function currentBoardCards() {
-  if (!handState) {
-    return [];
-  }
-  return [...handState.flop, handState.turn, handState.river].filter(Boolean);
+  return cardState.currentBoardCards();
 }
 
 function categoryLookup(categoryBands, bucketCount) {
@@ -2062,10 +1698,7 @@ function portfolioForCurvePage(page) {
 }
 
 function knownCardsForAsset(asset, page = activePage) {
-  return asset.name
-    .split(" + ")
-    .map((token) => cardForTokenOnPage(token, page))
-    .filter(Boolean);
+  return cardState.knownCardsForAsset(asset, page);
 }
 
 function cardForToken(token) {

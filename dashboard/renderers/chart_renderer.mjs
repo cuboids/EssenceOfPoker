@@ -113,7 +113,7 @@ function sampledChartCurve(visibleCurve, config) {
 function bellDensityPoints(domain, config) {
   const pointCount = config === largeChart ? 220 : 96;
   return Array.from({ length: pointCount }, (_, index) => {
-    const ratio = pointCount === 1 ? 0 : index / (pointCount - 1);
+    const ratio = index / (pointCount - 1);
     const value = domain.start + ratio * (domain.end - domain.start);
     return { value, density: normalPdf(value) };
   });

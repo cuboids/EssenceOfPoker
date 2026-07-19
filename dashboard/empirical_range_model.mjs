@@ -4,6 +4,12 @@ export const EMPIRICAL_DEFAULTS = Object.freeze({
   amountBucket: "none",
 });
 
+/**
+ * @param {any} empiricalSpot
+ * @param {string} classKey
+ * @param {string} actionType
+ * @param {{profile?: any}} [options]
+ */
 export function empiricalActionProbability(empiricalSpot, classKey, actionType, { profile = null } = {}) {
   const normalizedAction = normalizeActionType(actionType);
   const classEntry = empiricalSpot?.handClasses?.[classKey];
@@ -24,6 +30,10 @@ export function empiricalActionProbability(empiricalSpot, classKey, actionType, 
   return null;
 }
 
+/**
+ * @param {any} action
+ * @param {any} empiricalSpot
+ */
 export function empiricalTargetFrequency(action, empiricalSpot) {
   const actionProbability = empiricalSpot?.spotProbabilities?.[normalizeActionType(action.type)];
   if (!Number.isFinite(actionProbability)) {
@@ -33,6 +43,9 @@ export function empiricalTargetFrequency(action, empiricalSpot) {
   return action.type === "fold" ? 1 - probability : probability;
 }
 
+/**
+ * @param {{action?: any, position?: string, playerCount?: number, facingAggression?: boolean, stakeBucket?: string, yearBucket?: string}} [options]
+ */
 export function empiricalSpotRequest({
   action,
   position,

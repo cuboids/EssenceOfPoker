@@ -5,14 +5,30 @@ import {
   validatePreflopPrimaryClassPayload,
 } from "../data_contracts.mjs";
 
+/**
+ * @typedef {{ ok: boolean, value?: any, reason?: string, error?: unknown }} DataResult
+ */
+
+/**
+ * @param {{
+ *   aggregateClasses?: Record<string, any>,
+ *   hiddenVillainClasses?: Record<string, any>,
+ *   primaryClasses?: Record<string, any>,
+ *   getBucketCount?: () => number,
+ *   readAggregateClassResult?: (classKey: string) => Promise<DataResult>,
+ *   readHiddenVillainClassResult?: (classKey: string) => Promise<DataResult>,
+ *   readPrimaryClassResult?: (classKey: string) => Promise<DataResult>,
+ *   onPartLoaded?: (classKey: string) => void,
+ * }} [options]
+ */
 export function createPreflopClassStore({
   aggregateClasses = {},
   hiddenVillainClasses = {},
   primaryClasses = {},
-  getBucketCount,
-  readAggregateClass,
-  readHiddenVillainClass,
-  readPrimaryClass,
+  getBucketCount = () => 0,
+  readAggregateClassResult = async () => ({ ok: false, reason: "unavailable" }),
+  readHiddenVillainClassResult = async () => ({ ok: false, reason: "unavailable" }),
+  readPrimaryClassResult = async () => ({ ok: false, reason: "unavailable" }),
   onPartLoaded = () => {},
 } = {}) {
   let loadKey = "";
@@ -33,7 +49,8 @@ export function createPreflopClassStore({
     if (hiddenVillainClasses[classKey]) {
       return true;
     }
-    const payload = await readHiddenVillainClass(classKey);
+    const result = await readHiddenVillainClassResult(classKey);
+    const payload = result.ok ? result.value : null;
     if (payload?.curves) {
       hiddenVillainClasses[classKey] = validatePreflopHiddenVillainClassPayload(payload, {
         bucketCount: getBucketCount(),
@@ -50,7 +67,8 @@ export function createPreflopClassStore({
     if (aggregateClasses[classKey]) {
       return true;
     }
-    const payload = await readAggregateClass(classKey);
+    const result = await readAggregateClassResult(classKey);
+    const payload = result.ok ? result.value : null;
     if (payload?.aggregates) {
       const validated = validatePreflopAggregateClassPayload(payload, {
         bucketCount: getBucketCount(),
@@ -76,7 +94,8 @@ export function createPreflopClassStore({
     if (primaryClasses[classKey]) {
       return true;
     }
-    const payload = await readPrimaryClass(classKey);
+    const result = await readPrimaryClassResult(classKey);
+    const payload = result.ok ? result.value : null;
     if (payload?.assets) {
       primaryClasses[classKey] = validatePreflopPrimaryClassPayload(payload, {
         bucketCount: getBucketCount(),
@@ -97,6 +116,11 @@ export function createPreflopClassStore({
     return hiddenLoaded && aggregateLoaded && primaryLoaded;
   }
 
+  /**
+   * @param {any} h1
+   * @param {any} h2
+   * @param {{ onLoaded?: (result: { classKey: string, loaded: boolean }) => void }} [options]
+   */
   function queueLoad(h1, h2, { onLoaded = () => {} } = {}) {
     if (!h1 || !h2 || ready(h1, h2)) {
       return Promise.resolve();

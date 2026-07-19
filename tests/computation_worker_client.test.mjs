@@ -28,10 +28,44 @@ test("computation worker reports task failures before using fallback", async () 
     const worker = createComputationWorker("test", { onFailure: (failure) => failures.push(failure) });
     const result = await worker.computeWinShares({}, () => ({ fallback: true }));
 
-    assert.deepEqual(result, { fallback: true });
+    assert.deepEqual(result, {
+      fallback: true,
+      computation: {
+        backend: "main-thread",
+        fallbackFromWorker: true,
+        fallbackReason: "boom",
+      },
+    });
     assert.equal(failures.length, 1);
     assert.equal(failures[0].type, "computeWinShares");
     assert.equal(failures[0].message, "boom");
+  } finally {
+    restoreWorker();
+  }
+});
+
+test("computation worker marks successful worker results", async () => {
+  withFakeWorker(class {
+    constructor() {
+      this.listeners = {};
+    }
+
+    addEventListener(type, listener) {
+      this.listeners[type] = listener;
+    }
+
+    postMessage(message) {
+      queueMicrotask(() => {
+        this.listeners.message({ data: { id: message.id, ok: true, result: { ok: true } } });
+      });
+    }
+  });
+
+  try {
+    const worker = createComputationWorker("test");
+    const result = await worker.computeMultiwayEquities({}, () => ({ fallback: true }));
+
+    assert.deepEqual(result, { ok: true, computation: { backend: "worker" } });
   } finally {
     restoreWorker();
   }

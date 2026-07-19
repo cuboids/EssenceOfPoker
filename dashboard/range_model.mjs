@@ -54,6 +54,9 @@ export const DEFAULT_PREFLOP_RANGE_MODEL = Object.freeze({
   empiricalProbabilityBuckets: Object.freeze([0, 0.015, 0.04, 0.08, 0.14, 0.22, 0.34, 0.50, 0.72, 0.90, 1]),
 });
 
+/**
+ * @param {{player?: string, position?: string, deadCards?: any[], profile?: any}} [options]
+ */
 export function createUniformPreflopRange({ player, position, deadCards = [], profile = {} } = {}) {
   const combos = legalTwoCardCombos({ deadCards }).map((combo) => ({
     ...combo,
@@ -68,10 +71,20 @@ export function createUniformPreflopRange({ player, position, deadCards = [], pr
   });
 }
 
+/**
+ * @param {any} range
+ * @param {any} action
+ * @param {any} [context]
+ */
 export function updatePreflopRangeForAction(range, action, context = {}) {
   return updateRangeForAction(range, action, context);
 }
 
+/**
+ * @param {any} range
+ * @param {any} action
+ * @param {any} [context]
+ */
 export function updateRangeForAction(range, action, context = {}) {
   const model = context.model || DEFAULT_PREFLOP_RANGE_MODEL;
   const position = context.position || range.position;
@@ -111,6 +124,12 @@ export function updateRangeForAction(range, action, context = {}) {
   });
 }
 
+/**
+ * @param {any} range
+ * @param {any} action
+ * @param {any} empiricalSpot
+ * @param {any} [context]
+ */
 function updateRangeWithEmpiricalSpot(range, action, empiricalSpot, context = {}) {
   const model = context.model || DEFAULT_PREFLOP_RANGE_MODEL;
   const profile = context.profile || {};
@@ -150,6 +169,12 @@ function updateRangeWithEmpiricalSpot(range, action, empiricalSpot, context = {}
   });
 }
 
+/**
+ * @param {any} combo
+ * @param {any} action
+ * @param {any} empiricalSpot
+ * @param {{model: any, profile: any, context: any}} options
+ */
 function empiricalAdjustedActionScore(combo, action, empiricalSpot, { model, profile, context }) {
   const baseScore = actionScoreForCombo(combo, action, context);
   const rawProbability = empiricalActionProbability(empiricalSpot, combo.classKey, action.type, { profile });
@@ -167,6 +192,9 @@ function empiricalAdjustedActionScore(combo, action, empiricalSpot, { model, pro
   return baseScore + empiricalScoreAdjustment(shrunkProbability, Number(model.empiricalScoreWeight || 0));
 }
 
+/**
+ * @param {{player?: string, position?: string, combos: any[], history?: any[], modelMetadata?: any}} options
+ */
 export function summarizeRange({ player, position, combos, history = [], modelMetadata = rangeModelMetadata() }) {
   const totalCombos = combos.length;
   const weightedCombos = combos.reduce((sum, combo) => sum + combo.weight, 0);
@@ -184,6 +212,10 @@ export function summarizeRange({ player, position, combos, history = [], modelMe
   };
 }
 
+/**
+ * @param {any} action
+ * @param {any} [options]
+ */
 export function targetFrequencyForAction(action, {
   position,
   model = DEFAULT_PREFLOP_RANGE_MODEL,
@@ -206,6 +238,10 @@ export function targetFrequencyForAction(action, {
   return tacticalFrequency;
 }
 
+/**
+ * @param {any} action
+ * @param {any} [options]
+ */
 function tacticalTargetFrequencyForAction(action, {
   position,
   model = DEFAULT_PREFLOP_RANGE_MODEL,

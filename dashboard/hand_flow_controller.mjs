@@ -1,11 +1,8 @@
 import * as HandModel from "./hand_state.mjs";
 import { handViewFromModel } from "./hand_view.mjs";
 import { cardCompare, cardId, hasDuplicateCards, sameCard } from "./cards.mjs";
-import { readRandomInterestingHand } from "./data_client.mjs";
-import {
-  interestingHandToAppState,
-  modelFromImportedHandReplay,
-} from "./imported_hand_replay.mjs";
+import { loadRandomInterestingHandResult } from "./interesting_hand_loader.mjs";
+import { createHandTransactionDispatcher, handTransaction, HAND_EFFECTS } from "./hand_transactions.mjs";
 import {
   cloneCacheObject,
   cloneHandModel,
@@ -24,6 +21,43 @@ import {
 } from "./visible_hand_snapshot.mjs";
 
 export function createHandFlowController(deps) {
+  const transactions = createHandTransactionDispatcher({
+    setters: {
+      activePage: deps.setActivePage,
+      actionMomentCache: deps.setActionMomentCache,
+      cardEditError: deps.setCardEditError,
+      currentCurves: deps.setCurrentCurves,
+      currentWinShares: deps.setCurrentWinShares,
+      editingCardToken: deps.setEditingCardToken,
+      focusedAsset: deps.setFocusedAsset,
+      handModel: deps.setHandModel,
+      handState: deps.setHandState,
+      handTimeline: deps.setHandTimeline,
+      playerActions: deps.setPlayerActions,
+      priorNaturalXMaps: deps.setPriorNaturalXMaps,
+      showdownHoleCardsByPlayer: deps.setShowdownHoleCardsByPlayer,
+      tableConfig: deps.setTableConfig,
+      viewedActionCount: deps.setViewedActionCount,
+      viewedStreetIndex: deps.setViewedStreetIndex,
+      villainShowdown: deps.setVillainShowdown,
+      visibleHandSnapshot: deps.setVisibleHandSnapshot,
+    },
+    effects: {
+      [HAND_EFFECTS.BUMP_CURVE_TOKEN]: deps.bumpCurveComputationToken,
+      [HAND_EFFECTS.RENDER_ASSETS]: deps.renderAssets,
+      [HAND_EFFECTS.RENDER_CACHED_STREET]: deps.renderCachedStreet,
+      [HAND_EFFECTS.RENDER_CALIBRATION_STATUS]: deps.renderCalibrationStatus,
+      [HAND_EFFECTS.RENDER_HOLDING]: deps.renderHoldingDisplay,
+      [HAND_EFFECTS.RENDER_PORTFOLIO_TABS]: deps.renderPortfolioTabs,
+      [HAND_EFFECTS.RESET_WIN_SHARES]: deps.resetWinShareState,
+      [HAND_EFFECTS.SYNC_HAND_STATE]: syncHandStateFromModel,
+      [HAND_EFFECTS.UPDATE_LEGEND]: deps.updateLegend,
+      [HAND_EFFECTS.UPDATE_PAGE_TABS]: deps.updatePageTabs,
+      [HAND_EFFECTS.UPDATE_ROUND_BUTTON]: deps.updateRoundButton,
+      [HAND_EFFECTS.UPDATE_STREET_NAV_BUTTONS]: deps.updateStreetNavButtons,
+    },
+  });
+
   function handleCardEditClick(event) {
     const action = event.target.closest("[data-card-edit-action]");
     if (action) {
@@ -69,13 +103,21 @@ export function createHandFlowController(deps) {
       deps.renderHoldingDisplay();
       return;
     }
-    deps.setEditingCardToken(null);
-    deps.setCardEditError("");
-    deps.bumpCurveComputationToken();
-    deps.setViewedActionCount(null);
-    deps.setActionMomentCache(new Map());
-    deps.setCurrentCurves({});
-    deps.resetWinShareState();
+    transactions.dispatch(handTransaction("known-card-edited", {
+      patch: {
+        ...result.patch,
+        editingCardToken: null,
+        cardEditError: "",
+        viewedActionCount: null,
+        actionMomentCache: new Map(),
+        currentCurves: {},
+      },
+      effects: [
+        HAND_EFFECTS.SYNC_HAND_STATE,
+        HAND_EFFECTS.BUMP_CURVE_TOKEN,
+        HAND_EFFECTS.RESET_WIN_SHARES,
+      ],
+    }));
     rebuildTimelineForCurrentHand();
     finishRoundDeal();
   }
@@ -85,19 +127,23 @@ export function createHandFlowController(deps) {
     const nextPending = [...HandModel.pendingHoleCards(deps.handModel())];
     nextPending[index] = nextCard;
     if (hasDuplicateCards(nextPending.filter(Boolean))) {
-      deps.setCardEditError("That card is already in the other hole-card slot.");
-      deps.renderHoldingDisplay();
+      transactions.dispatch(handTransaction("pending-hole-card-duplicate", {
+        patch: { cardEditError: "That card is already in the other hole-card slot." },
+        effects: [HAND_EFFECTS.RENDER_HOLDING],
+      }));
       return;
     }
-    deps.setEditingCardToken(null);
-    deps.setCardEditError("");
+    transactions.dispatch(handTransaction("pending-hole-card-edit-accepted", {
+      patch: { editingCardToken: null, cardEditError: "" },
+    }));
     if (nextPending.every(Boolean)) {
       await startPreflopFromHoleCards(nextPending);
       return;
     }
-    deps.setHandModel(HandModel.setPendingHoleCard(deps.handModel(), token, nextCard));
-    syncHandStateFromModel();
-    deps.renderHoldingDisplay();
+    transactions.dispatch(handTransaction("pending-hole-card-edited", {
+      patch: { handModel: HandModel.setPendingHoleCard(deps.handModel(), token, nextCard) },
+      effects: [HAND_EFFECTS.SYNC_HAND_STATE, HAND_EFFECTS.RENDER_HOLDING],
+    }));
   }
 
   function applyCardEdit(token, nextCard) {
@@ -105,7 +151,7 @@ export function createHandFlowController(deps) {
       return applyShowdownVillainCardEdit(deps.activePage(), token, nextCard);
     }
     try {
-      deps.setHandModel(HandModel.editKnownCardModel(deps.handModel(), token, nextCard));
+      return { ok: true, patch: { handModel: HandModel.editKnownCardModel(deps.handModel(), token, nextCard) } };
     } catch (error) {
       if (!HandModel.isShowdown(deps.handModel()) && error.message.includes("replacement villain cards")) {
         const currentCard = deps.cardForTokenOnPage(token, deps.activePage());
@@ -119,13 +165,16 @@ export function createHandFlowController(deps) {
           .filter(Boolean)
           .map((card) => (currentCard && sameCard(card, currentCard) ? nextCard : card));
         const replacementVillain = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards(editedVisibleCards), 2).sort(cardCompare);
-        deps.setHandModel(HandModel.editKnownCardModel(deps.handModel(), token, nextCard, replacementVillain));
+        return {
+          ok: true,
+          patch: {
+            handModel: HandModel.editKnownCardModel(deps.handModel(), token, nextCard, replacementVillain),
+          },
+        };
       } else {
         return { ok: false, message: error.message };
       }
     }
-    syncHandStateFromModel();
-    return { ok: true };
   }
 
   function applyShowdownVillainCardEdit(page, token, nextCard) {
@@ -151,11 +200,15 @@ export function createHandFlowController(deps) {
     if (hasDuplicateCards(visibleCards)) {
       return { ok: false, message: "That card is already dealt somewhere else in this hand." };
     }
-    deps.setShowdownHoleCardsByPlayer({
-      ...deps.showdownHoleCardsByPlayer(),
-      [page]: nextCards.sort(cardCompare),
-    });
-    return { ok: true };
+    return {
+      ok: true,
+      patch: {
+        showdownHoleCardsByPlayer: {
+          ...deps.showdownHoleCardsByPlayer(),
+          [page]: nextCards.sort(cardCompare),
+        },
+      },
+    };
   }
 
   function rebuildTimelineForCurrentHand({ viewedIndex = deps.viewedStreetIndex(), preserveStreetModels = false } = {}) {
@@ -177,27 +230,34 @@ export function createHandFlowController(deps) {
 
   function resetNewHand() {
     deps.advanceHeroPositionForNewHand();
-    deps.setHandModel(HandModel.emptyHandModel());
-    syncHandStateFromModel();
-    deps.setShowdownHoleCardsByPlayer({});
-    deps.setHandTimeline([]);
-    deps.setPlayerActions([]);
-    deps.setViewedStreetIndex(-1);
-    deps.setViewedActionCount(null);
-    deps.setActionMomentCache(new Map());
-    deps.setEditingCardToken(null);
-    deps.setCardEditError("");
-    deps.bumpCurveComputationToken();
-    deps.setCurrentCurves(deps.priorCurvesByPage(deps.dashboardData()));
-    deps.setPriorNaturalXMaps(deps.priorNaturalXMapsByPage(deps.currentCurves()));
-    deps.resetWinShareState();
-    deps.renderPortfolioTabs();
-    deps.renderHoldingDisplay();
-    deps.updateRoundButton();
-    deps.updateStreetNavButtons();
-    deps.updatePageTabs();
-    deps.updateLegend();
-    deps.renderAssets();
+    const priorCurves = deps.priorCurvesByPage(deps.dashboardData());
+    transactions.dispatch(handTransaction("new-hand-reset", {
+      patch: {
+        handModel: HandModel.emptyHandModel(),
+        showdownHoleCardsByPlayer: {},
+        handTimeline: [],
+        playerActions: [],
+        viewedStreetIndex: -1,
+        viewedActionCount: null,
+        actionMomentCache: new Map(),
+        editingCardToken: null,
+        cardEditError: "",
+        currentCurves: priorCurves,
+        priorNaturalXMaps: deps.priorNaturalXMapsByPage(priorCurves),
+      },
+      effects: [
+        HAND_EFFECTS.SYNC_HAND_STATE,
+        HAND_EFFECTS.BUMP_CURVE_TOKEN,
+        HAND_EFFECTS.RESET_WIN_SHARES,
+        HAND_EFFECTS.RENDER_PORTFOLIO_TABS,
+        HAND_EFFECTS.RENDER_HOLDING,
+        HAND_EFFECTS.UPDATE_ROUND_BUTTON,
+        HAND_EFFECTS.UPDATE_STREET_NAV_BUTTONS,
+        HAND_EFFECTS.UPDATE_PAGE_TABS,
+        HAND_EFFECTS.UPDATE_LEGEND,
+        HAND_EFFECTS.RENDER_ASSETS,
+      ],
+    }));
     if (deps.focusedAsset()) {
       deps.openFocus(deps.focusedAsset());
     }
@@ -209,18 +269,21 @@ export function createHandFlowController(deps) {
     button.classList.add("is-loading");
     button.title = "Loading random interesting hand";
     try {
-      const payload = await readRandomInterestingHand();
-      if (!payload?.hand) {
-        deps.setCardEditError(payload?.error || "No dashboard-compatible interesting hand is available.");
-        deps.renderHoldingDisplay();
+      const result = await loadRandomInterestingHandResult({
+        dealers: {
+          dealHoleCards: deps.dealHoleCards,
+          dealCardsFromDeck: deps.dealCardsFromDeck,
+          remainingDeckForKnownCards: deps.remainingDeckForKnownCards,
+        },
+      });
+      if (!result.ok) {
+        transactions.dispatch(handTransaction("interesting-hand-load-failed", {
+          patch: { cardEditError: result.message },
+          effects: [HAND_EFFECTS.RENDER_HOLDING],
+        }));
         return;
       }
-      try {
-        loadInterestingHand(payload);
-      } catch (error) {
-        deps.setCardEditError(`Could not load interesting hand${error?.message ? `: ${error.message}` : "."}`);
-        deps.renderHoldingDisplay();
-      }
+      loadInterestingHand(result);
     } finally {
       button.disabled = false;
       button.classList.remove("is-loading");
@@ -228,38 +291,51 @@ export function createHandFlowController(deps) {
     }
   }
 
-  function loadInterestingHand(payload) {
-    const imported = interestingHandToAppState(payload.hand);
-    deps.setTableConfig(deps.normalizeTableConfig(imported.tableConfig));
+  function loadInterestingHand({ imported, handModel }) {
+    const tableConfig = deps.normalizeTableConfig(imported.tableConfig);
+    transactions.dispatch(handTransaction("interesting-hand-loaded-initial", {
+      patch: { tableConfig },
+    }));
     deps.persistTableConfig();
     deps.rebuildDashboardPortfolios();
-    deps.setHandModel(modelFromImportedHandReplay(imported, {
-      dealHoleCards: deps.dealHoleCards,
-      dealCardsFromDeck: deps.dealCardsFromDeck,
-      remainingDeckForKnownCards: deps.remainingDeckForKnownCards,
+    transactions.dispatch(handTransaction("interesting-hand-loaded", {
+      patch: {
+        handModel,
+        showdownHoleCardsByPlayer: imported.showdownHoleCardsByPlayer,
+        playerActions: imported.playerActions,
+        viewedActionCount: 0,
+        actionMomentCache: new Map(),
+        activePage: "hero",
+        focusedAsset: null,
+        editingCardToken: null,
+        cardEditError: "",
+        currentCurves: {},
+        priorNaturalXMaps: deps.priorNaturalXMapsByPage(deps.priorCurvesByPage(deps.dashboardData())),
+      },
+      effects: [
+        HAND_EFFECTS.SYNC_HAND_STATE,
+        HAND_EFFECTS.BUMP_CURVE_TOKEN,
+        HAND_EFFECTS.RESET_WIN_SHARES,
+      ],
     }));
-    syncHandStateFromModel();
-    deps.setShowdownHoleCardsByPlayer(imported.showdownHoleCardsByPlayer);
-    deps.setPlayerActions(imported.playerActions);
-    deps.setViewedActionCount(0);
-    deps.setActionMomentCache(new Map());
-    deps.setActivePage("hero");
-    deps.setFocusedAsset(null);
-    deps.setEditingCardToken(null);
-    deps.setCardEditError("");
-    deps.bumpCurveComputationToken();
-    deps.setCurrentCurves({});
-    deps.setPriorNaturalXMaps(deps.priorNaturalXMapsByPage(deps.priorCurvesByPage(deps.dashboardData())));
-    deps.resetWinShareState();
     rebuildTimelineForCurrentHand({ viewedIndex: 0, preserveStreetModels: true });
-    deps.setHandModel(cloneHandModel(deps.handTimeline()[deps.viewedStreetIndex()].handModel));
-    syncHandStateFromModel();
-    deps.setCurrentCurves(cloneCacheObject(deps.handTimeline()[deps.viewedStreetIndex()].currentCurves || {}));
-    deps.setCurrentWinShares(cloneCacheObject(deps.handTimeline()[deps.viewedStreetIndex()].currentWinShares || {}));
+    const viewedSnapshot = deps.handTimeline()[deps.viewedStreetIndex()];
+    transactions.dispatch(handTransaction("interesting-hand-viewed-snapshot", {
+      patch: {
+        handModel: cloneHandModel(viewedSnapshot.handModel),
+        currentCurves: cloneCacheObject(viewedSnapshot.currentCurves || {}),
+        currentWinShares: cloneCacheObject(viewedSnapshot.currentWinShares || {}),
+      },
+      effects: [HAND_EFFECTS.SYNC_HAND_STATE],
+    }));
     updateCurrentStreetSnapshot();
-    deps.renderPortfolioTabs();
-    deps.renderCalibrationStatus();
-    deps.renderCachedStreet();
+    transactions.dispatch(handTransaction("interesting-hand-render", {
+      effects: [
+        HAND_EFFECTS.RENDER_PORTFOLIO_TABS,
+        HAND_EFFECTS.RENDER_CALIBRATION_STATUS,
+        HAND_EFFECTS.RENDER_CACHED_STREET,
+      ],
+    }));
   }
 
   function dealNewRound() {
@@ -305,14 +381,20 @@ export function createHandFlowController(deps) {
   function startPreflopFromHoleCards(holeCards) {
     const [h1, h2] = [...holeCards].sort(cardCompare);
     const [v1, v2] = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards([h1, h2]), 2).sort(cardCompare);
-    deps.setHandModel(HandModel.startPreflopModel([h1, h2], [v1, v2]));
-    deps.setShowdownHoleCardsByPlayer({});
-    syncHandStateFromModel();
+    transactions.dispatch(handTransaction("preflop-started", {
+      patch: {
+        handModel: HandModel.startPreflopModel([h1, h2], [v1, v2]),
+        showdownHoleCardsByPlayer: {},
+        actionMomentCache: new Map(),
+        currentCurves: {},
+      },
+      effects: [
+        HAND_EFFECTS.SYNC_HAND_STATE,
+        HAND_EFFECTS.BUMP_CURVE_TOKEN,
+        HAND_EFFECTS.RESET_WIN_SHARES,
+      ],
+    }));
     recordCurrentStreet();
-    deps.bumpCurveComputationToken();
-    deps.setActionMomentCache(new Map());
-    deps.setCurrentCurves({});
-    deps.resetWinShareState();
     deps.queuePreflopClassDataLoad(h1, h2);
 
     finishRoundDeal();
@@ -320,30 +402,34 @@ export function createHandFlowController(deps) {
 
   function dealTurnRound() {
     const [turn] = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards(deps.allDealtCardsForDeck()), 1);
-    deps.setHandModel(HandModel.dealTurnModel(deps.handModel(), turn));
-    finishStreetDeal();
+    finishStreetDeal(HandModel.dealTurnModel(deps.handModel(), turn));
   }
 
   function dealRiverRound() {
     const [river] = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards(deps.allDealtCardsForDeck()), 1);
-    deps.setHandModel(HandModel.dealRiverModel(deps.handModel(), river));
-    finishStreetDeal();
+    finishStreetDeal(HandModel.dealRiverModel(deps.handModel(), river));
   }
 
   function dealFlopRound() {
     const knownCards = deps.allDealtCardsForDeck();
     const flop = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards(knownCards), 3);
-    deps.setHandModel(HandModel.dealFlopModel(deps.handModel(), flop));
-    finishStreetDeal();
+    finishStreetDeal(HandModel.dealFlopModel(deps.handModel(), flop));
   }
 
-  function finishStreetDeal() {
-    syncHandStateFromModel();
+  function finishStreetDeal(nextHandModel) {
+    transactions.dispatch(handTransaction("street-dealt", {
+      patch: {
+        handModel: nextHandModel,
+        actionMomentCache: new Map(),
+        currentCurves: {},
+      },
+      effects: [
+        HAND_EFFECTS.SYNC_HAND_STATE,
+        HAND_EFFECTS.BUMP_CURVE_TOKEN,
+        HAND_EFFECTS.RESET_WIN_SHARES,
+      ],
+    }));
     recordCurrentStreet();
-    deps.bumpCurveComputationToken();
-    deps.setActionMomentCache(new Map());
-    deps.setCurrentCurves({});
-    deps.resetWinShareState();
     finishRoundDeal();
   }
 
@@ -486,16 +572,20 @@ export function createHandFlowController(deps) {
   }
 
   function commitVisibleHandSnapshot(snapshot) {
-    deps.setHandModel(cloneHandModel(snapshot.handModel));
-    deps.setHandState(snapshot.handState);
-    deps.setVillainShowdown(snapshot.villainShowdown);
-    deps.setHandTimeline(snapshot.handTimeline);
-    deps.setPlayerActions(clonePlayerActions(snapshot.playerActions || deps.playerActions()));
-    deps.setViewedStreetIndex(snapshot.viewedStreetIndex);
-    deps.setViewedActionCount(snapshot.viewedActionCount);
-    deps.setCurrentCurves(cloneCacheObject(snapshot.currentCurves || {}));
-    deps.setCurrentWinShares(cloneCacheObject(snapshot.currentWinShares || {}));
-    deps.setShowdownHoleCardsByPlayer(cloneShowdownHoleCardsByPlayer(snapshot.showdownHoleCardsByPlayer || {}));
+    transactions.dispatch(handTransaction("commit-visible-hand-snapshot", {
+      patch: {
+        handModel: cloneHandModel(snapshot.handModel),
+        handState: snapshot.handState,
+        villainShowdown: snapshot.villainShowdown,
+        handTimeline: snapshot.handTimeline,
+        playerActions: clonePlayerActions(snapshot.playerActions || deps.playerActions()),
+        viewedStreetIndex: snapshot.viewedStreetIndex,
+        viewedActionCount: snapshot.viewedActionCount,
+        currentCurves: cloneCacheObject(snapshot.currentCurves || {}),
+        currentWinShares: cloneCacheObject(snapshot.currentWinShares || {}),
+        showdownHoleCardsByPlayer: cloneShowdownHoleCardsByPlayer(snapshot.showdownHoleCardsByPlayer || {}),
+      },
+    }));
     refreshVisibleHandSnapshot();
   }
 

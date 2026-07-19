@@ -38,6 +38,12 @@ class CalibrationStore:
     def close(self) -> None:
         self.connection.close()
 
+    def __enter__(self) -> "CalibrationStore":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
+
     def initialize(self) -> None:
         self.connection.executescript(
             """

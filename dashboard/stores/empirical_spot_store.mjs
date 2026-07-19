@@ -1,3 +1,16 @@
+/**
+ * @typedef {{ ok: true, value?: any, data?: any } | { ok: false, reason?: string, error?: unknown, data?: any }} StoreResult
+ */
+
+/**
+ * @param {{
+ *   readSpot?: (request: any) => Promise<StoreResult>,
+ *   readHealth?: () => Promise<any>,
+ *   requestForAction?: (action: any) => any,
+ *   onLoadingChange?: () => void,
+ *   onUpdated?: () => void,
+ * }} [options]
+ */
 export function createEmpiricalSpotStore({
   readSpot,
   readHealth,

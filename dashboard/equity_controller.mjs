@@ -1,5 +1,5 @@
 import { fullDeck, cardId, sameCard } from "./cards.mjs";
-import { readApiCache, writeApiCache } from "./cache_client.mjs";
+import { readApiCacheResult, writeApiCacheResult } from "./cache_client.mjs";
 import { cacheNamespace, winShareCacheKey as buildWinShareCacheKey } from "./cache_keys.mjs";
 import {
   validateCompactPreflopMultiwayEquityCachePayload,
@@ -22,19 +22,16 @@ import {
 } from "./win_shares.mjs";
 
 export function createEquityController(deps) {
-  let aggregateEquityComputationScheduled = false;
-  let winShareComputationScheduled = false;
-
   function resetWinShareState() {
     deps.setCurrentWinShares(deps.handState() ? {} : deps.priorWinSharesByPage());
-    winShareComputationScheduled = false;
-    aggregateEquityComputationScheduled = false;
+    deps.asyncJobs.cancelByPrefix("equity:");
   }
 
   function ensureCurrentPageWinShares() {
     const handState = deps.handState();
     const activePage = deps.activePage();
-    if (!handState || activePage === "config" || deps.currentWinShares()[activePage] || winShareComputationScheduled) {
+    const jobKey = `equity:win-shares:${activePage}`;
+    if (!handState || activePage === "config" || deps.currentWinShares()[activePage] || deps.asyncJobs.isScheduled(jobKey)) {
       return;
     }
     if (deps.isOpponentPage(activePage) && !deps.villainShowdown()) {
@@ -43,35 +40,39 @@ export function createEquityController(deps) {
 
     const guard = deps.createCurrentAsyncGuard({ purpose: "page-win-shares", page: activePage });
     const page = activePage;
-    winShareComputationScheduled = true;
-    setTimeout(async () => {
-      winShareComputationScheduled = false;
-      if (!guard.isCurrent() || deps.currentWinShares()[page]) {
-        return;
-      }
-      const result = await cachedOrComputedWinSharesForPage(page, { guard });
-      if (!guard.isCurrent() || deps.currentWinShares()[page]) {
-        return;
-      }
-      deps.patchCurrentWinShares(page, (currentPageShares = {}) => ({
-        ...currentPageShares,
-        ...result,
-        aggregateShares: currentPageShares.aggregateShares,
-        aggregateEquityMeta: currentPageShares.aggregateEquityMeta,
-      }));
-      deps.updateCurrentStreetSnapshot();
-      deps.saveCurrentMomentCache();
-      if (deps.activePage() === page) {
-        deps.renderAssets();
-        if (deps.focusedAsset() && !deps.focusedAsset().isAggregate) {
-          deps.openFocus(deps.focusedAsset());
+    deps.asyncJobs.schedule({
+      key: jobKey,
+      delayMs: 20,
+      guard,
+      run: async () => {
+        if (deps.currentWinShares()[page]) {
+          return;
         }
-      }
-    }, 20);
+        const result = await cachedOrComputedWinSharesForPage(page, { guard });
+        if (!guard.isCurrent() || deps.currentWinShares()[page]) {
+          return;
+        }
+        deps.patchCurrentWinShares(page, (currentPageShares = {}) => ({
+          ...currentPageShares,
+          ...result,
+          aggregateShares: currentPageShares.aggregateShares,
+          aggregateEquityMeta: currentPageShares.aggregateEquityMeta,
+        }));
+        deps.updateCurrentStreetSnapshot();
+        deps.saveCurrentMomentCache();
+        if (deps.activePage() === page) {
+          deps.renderAssets();
+          if (deps.focusedAsset() && !deps.focusedAsset().isAggregate) {
+            deps.openFocus(deps.focusedAsset());
+          }
+        }
+      },
+    });
   }
 
   function ensureAggregateEquities() {
-    if (deps.activePage() === "config" || aggregateEquitiesAreReady() || aggregateEquityComputationScheduled) {
+    const jobKey = "equity:aggregate";
+    if (deps.activePage() === "config" || aggregateEquitiesAreReady() || deps.asyncJobs.isScheduled(jobKey)) {
       return;
     }
     if (!deps.handState()) {
@@ -80,24 +81,27 @@ export function createEquityController(deps) {
     }
 
     const guard = deps.createCurrentAsyncGuard({ purpose: "aggregate-equities", page: deps.activePage() });
-    aggregateEquityComputationScheduled = true;
-    setTimeout(async () => {
-      aggregateEquityComputationScheduled = false;
-      if (!guard.isCurrent() || aggregateEquitiesAreReady()) {
-        return;
-      }
-      const equities = await cachedOrComputedAggregateEquities({ guard });
-      if (!guard.isCurrent()) {
-        return;
-      }
-      applyAggregateEquities(equities);
-      deps.updateCurrentStreetSnapshot();
-      deps.saveCurrentMomentCache();
-      deps.renderAssets();
-      if (deps.focusedAsset()?.isAggregate) {
-        deps.openFocus(deps.focusedAsset());
-      }
-    }, 250);
+    deps.asyncJobs.schedule({
+      key: jobKey,
+      delayMs: 250,
+      guard,
+      run: async () => {
+        if (aggregateEquitiesAreReady()) {
+          return;
+        }
+        const equities = await cachedOrComputedAggregateEquities({ guard });
+        if (!guard.isCurrent()) {
+          return;
+        }
+        applyAggregateEquities(equities);
+        deps.updateCurrentStreetSnapshot();
+        deps.saveCurrentMomentCache();
+        deps.renderAssets();
+        if (deps.focusedAsset()?.isAggregate) {
+          deps.openFocus(deps.focusedAsset());
+        }
+      },
+    });
   }
 
   function aggregateEquitiesAreReady() {
@@ -184,18 +188,18 @@ export function createEquityController(deps) {
     }
     const cacheKey = buildAggregateEquityCacheKey(matchup, payload);
     const usesCanonicalCache = preflopAggregateEquityUsesCanonicalCache(matchup, payload);
-    const cached = await readApiCache(cacheKey, {
+    const cached = await readApiCacheResult(cacheKey, {
       validator: (candidate) => usesCanonicalCache
         ? validateCompactPreflopMultiwayEquityCachePayload(candidate, { playerCount: payload.participants.length })
         : validateMultiwayEquityCachePayload(candidate, { expectedParticipants: payload.participants.length }),
     });
-    if (cached) {
+    if (cached.ok) {
       return usesCanonicalCache
-        ? expandCachedPreflopAggregateEquity(cached, payload)
-        : cached;
+        ? expandCachedPreflopAggregateEquity(cached.value, payload)
+        : cached.value;
     }
     const result = await computeMultiwayEquityAsync(payload);
-    writeApiCache(
+    void writeApiCacheResult(
       cacheKey,
       usesCanonicalCache
         ? compactPreflopAggregateEquity(result, payload)
@@ -378,18 +382,18 @@ export function createEquityController(deps) {
 
   async function cachedOrComputedWinSharesForPage(page, { guard = null } = {}) {
     const cacheKey = winShareCacheKey(page);
-    const cached = await readApiCache(cacheKey, {
+    const cached = await readApiCacheResult(cacheKey, {
       validator: (payload) => validateWinShareCachePayload(payload, { expectedShareCount: 21 }),
     });
-    if (cached) {
-      return cached;
+    if (cached.ok) {
+      return cached.value;
     }
     if (page === "hero" && deps.handState()?.round === "preflop") {
       return { shares: {}, totalCombos: 0, pending: true };
     }
 
     const result = await computeWinSharesForPageAsync(page);
-    writeApiCache(cacheKey, result, {
+    void writeApiCacheResult(cacheKey, result, {
       shouldWrite: () => !guard || guard.isCurrent(),
       validator: (payload) => validateWinShareCachePayload(payload, { expectedShareCount: 21 }),
     });

@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from contextlib import closing
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -79,11 +80,11 @@ class ServerTests(unittest.TestCase):
             self.assertIn("empiricalSpotCache", payload["data"])
 
     def test_data_health_payload_is_cached_for_short_polling_windows(self) -> None:
-        with patch("essence_of_poker.server._DATA_HEALTH_CACHE", None):
-            with patch("essence_of_poker.server.data_health_payload", side_effect=[
+        with patch("essence_of_poker.api_handlers._DATA_HEALTH_CACHE", None):
+            with patch("essence_of_poker.api_handlers.data_health_payload", side_effect=[
                 {"generation": 1},
                 {"generation": 2},
-            ]), patch("essence_of_poker.server.time.monotonic", side_effect=[100.0, 101.0, 107.0]):
+            ]), patch("essence_of_poker.api_handlers.time.monotonic", side_effect=[100.0, 101.0, 107.0]):
                 self.assertEqual(cached_data_health_payload()["generation"], 1)
                 self.assertEqual(cached_data_health_payload()["generation"], 1)
                 self.assertEqual(cached_data_health_payload()["generation"], 2)
@@ -143,47 +144,48 @@ class ServerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db = Path(temp_dir) / "interesting.sqlite3"
-            with sqlite3.connect(db) as connection:
-                connection.executescript(
-                    """
-                    CREATE TABLE interesting_hands (
-                      hand_key TEXT PRIMARY KEY,
-                      score REAL NOT NULL,
-                      reasons_json TEXT NOT NULL,
-                      metrics_json TEXT NOT NULL,
-                      hand_json TEXT NOT NULL,
-                      source_path TEXT NOT NULL,
-                      selected_at TEXT NOT NULL
-                    );
-                    """
-                )
-                connection.executemany(
-                    """
-                    INSERT INTO interesting_hands (
-                      hand_key, score, reasons_json, metrics_json, hand_json, source_path, selected_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        ("too-many", 99, "[]", json.dumps({"players": 9}), json.dumps({"source_hand_id": "bad"}), "x", "now"),
-                        (
-                            "six-max",
-                            42,
-                            json.dumps(["river decision"]),
-                            json.dumps({"players": 6}),
-                            json.dumps({
-                                "source_hand_id": "ok",
-                                "players": [
-                                    {"position": "SB", "source_player_id": "p1", "hole_cards": ["As", "Kd"]},
-                                    {"position": "BB", "source_player_id": "p2", "hole_cards": ["Qc", "Jh"]},
-                                ],
-                                "board": ["2s", "3h", "4d"],
-                                "actions": [{"player_id": "p1", "street": "preflop", "action_type": "raise"}],
-                            }),
-                            "x",
-                            "now",
-                        ),
-                    ],
-                )
+            with closing(sqlite3.connect(db)) as connection:
+                with connection:
+                    connection.executescript(
+                        """
+                        CREATE TABLE interesting_hands (
+                          hand_key TEXT PRIMARY KEY,
+                          score REAL NOT NULL,
+                          reasons_json TEXT NOT NULL,
+                          metrics_json TEXT NOT NULL,
+                          hand_json TEXT NOT NULL,
+                          source_path TEXT NOT NULL,
+                          selected_at TEXT NOT NULL
+                        );
+                        """
+                    )
+                    connection.executemany(
+                        """
+                        INSERT INTO interesting_hands (
+                          hand_key, score, reasons_json, metrics_json, hand_json, source_path, selected_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            ("too-many", 99, "[]", json.dumps({"players": 9}), json.dumps({"source_hand_id": "bad"}), "x", "now"),
+                            (
+                                "six-max",
+                                42,
+                                json.dumps(["river decision"]),
+                                json.dumps({"players": 6}),
+                                json.dumps({
+                                    "source_hand_id": "ok",
+                                    "players": [
+                                        {"position": "SB", "source_player_id": "p1", "hole_cards": ["As", "Kd"]},
+                                        {"position": "BB", "source_player_id": "p2", "hole_cards": ["Qc", "Jh"]},
+                                    ],
+                                    "board": ["2s", "3h", "4d"],
+                                    "actions": [{"player_id": "p1", "street": "preflop", "action_type": "raise"}],
+                                }),
+                                "x",
+                                "now",
+                            ),
+                        ],
+                    )
 
             payload = random_interesting_hand_payload(db)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -86,16 +87,15 @@ class CalibrationPipelineTest(unittest.TestCase):
     def test_repository_round_trips_hands_and_training_rows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "calibration.sqlite3"
-            store = CalibrationStore(db)
-            store.initialize()
-            hand = list(iter_fixture_hands())[0]
-            hand_key = store.upsert_hand(hand)
-            examples = extract_training_examples(hand_key, hand)
-            store.insert_training_examples(examples)
+            with CalibrationStore(db) as store:
+                store.initialize()
+                hand = list(iter_fixture_hands())[0]
+                hand_key = store.upsert_hand(hand)
+                examples = extract_training_examples(hand_key, hand)
+                store.insert_training_examples(examples)
 
-            round_tripped = store.hands_for_feature_extraction()
-            stored_examples = store.training_examples()
-            store.close()
+                round_tripped = store.hands_for_feature_extraction()
+                stored_examples = store.training_examples()
 
         self.assertEqual(round_tripped[0][0], "phh:h1")
         self.assertEqual(len(stored_examples), 5)
@@ -162,7 +162,7 @@ hand = 123
             import sqlite3
 
             self.assertEqual(result["hands"], 1)
-            with sqlite3.connect(db) as con:
+            with closing(sqlite3.connect(db)) as con:
                 self.assertEqual(con.execute("select count(*) from corpus_sources").fetchone()[0], 1)
                 self.assertEqual(con.execute("select sum(hand_count) from corpus_files").fetchone()[0], 1)
                 self.assertEqual(
@@ -334,7 +334,7 @@ hand = 123
             self.assertTrue(output_jsonl.exists())
             self.assertGreaterEqual(selected[0]["score"], selected[1]["score"])
             self.assertIn("multi-street action", selected[0]["reasons"])
-            with sqlite3.connect(output_db) as con:
+            with closing(sqlite3.connect(output_db)) as con:
                 self.assertEqual(con.execute("select count(*) from interesting_hands").fetchone()[0], 2)
                 row = con.execute("select reasons_json from interesting_hands order by score desc limit 1").fetchone()
             self.assertIn("multi-street action", row[0])

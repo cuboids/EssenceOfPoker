@@ -19,6 +19,12 @@ export function validateDashboardData(data) {
   return data;
 }
 
+/** @typedef {{ bucketCount?: number, strictCounts?: boolean }} BucketValidationOptions */
+
+/**
+ * @param {any} cache
+ * @param {BucketValidationOptions} [options]
+ */
 export function validatePreflopAggregateCache(cache, { bucketCount, strictCounts = false } = {}) {
   assertObject(cache, "preflop aggregate cache");
   assertPositiveInteger(cache.totalCombos, "preflop aggregate totalCombos");
@@ -36,6 +42,10 @@ export function validatePreflopAggregateCache(cache, { bucketCount, strictCounts
   return cache;
 }
 
+/**
+ * @param {any} payload
+ * @param {BucketValidationOptions} [options]
+ */
 export function validatePreflopAggregateClassPayload(payload, { bucketCount, strictCounts = false } = {}) {
   assertObject(payload, "preflop aggregate class payload");
   assertProbabilitySpace(payload, PROBABILITY_SPACES.HERO_PREFLOP_AGGREGATE);
@@ -56,6 +66,10 @@ export function validatePreflopAggregateClassPayload(payload, { bucketCount, str
   return payload;
 }
 
+/**
+ * @param {any} cache
+ * @param {BucketValidationOptions} [options]
+ */
 export function validatePreflopPrimaryPriorCache(cache, { bucketCount, strictCounts = false } = {}) {
   assertObject(cache, "preflop primary prior cache");
   assertPositiveInteger(cache.totalCombos, "preflop primary prior totalCombos");
@@ -79,6 +93,10 @@ export function validatePreflopPrimaryPriorCache(cache, { bucketCount, strictCou
   return cache;
 }
 
+/**
+ * @param {any} payload
+ * @param {BucketValidationOptions} [options]
+ */
 export function validatePreflopPrimaryClassPayload(payload, { bucketCount, strictCounts = false } = {}) {
   assertObject(payload, "preflop primary class payload");
   assertString(payload.source, "preflop primary class source");
@@ -118,6 +136,10 @@ export function validatePriorWinShares(cache, { assetCount = 21 } = {}) {
   return cache;
 }
 
+/**
+ * @param {any} cache
+ * @param {BucketValidationOptions} [options]
+ */
 export function validatePreflopHiddenVillainCache(cache, { bucketCount, strictCounts = false } = {}) {
   assertObject(cache, "preflop hidden villain cache");
   assertObject(cache.classes, "preflop hidden villain classes");
@@ -133,6 +155,10 @@ export function validatePreflopHiddenVillainCache(cache, { bucketCount, strictCo
   return cache;
 }
 
+/**
+ * @param {any} payload
+ * @param {BucketValidationOptions} [options]
+ */
 export function validatePreflopHiddenVillainClassPayload(payload, { bucketCount, strictCounts = false } = {}) {
   assertObject(payload, "preflop hidden villain class payload");
   assertProbabilitySpace(payload, PROBABILITY_SPACES.HIDDEN_VILLAIN_PREFLOP_PRIMARY);

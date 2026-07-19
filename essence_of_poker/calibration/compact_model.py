@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,7 +77,7 @@ def train_compact_softmax_model(
     epochs: int = 5,
     folds: int = 5,
 ) -> dict[str, Any]:
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection:
         connection.row_factory = sqlite3.Row
         selected_source = source_key or default_source_key(connection)
         rows = compact_rows(connection, selected_source)

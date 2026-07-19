@@ -18,6 +18,10 @@ const ACTION_SHIFTS = Object.freeze({
   maniac: Object.freeze({ fold: -0.35, check: -0.25, call: 0.08, bet: 0.42, raise: 0.75, "all-in": 0.55 }),
 });
 
+/**
+ * @param {Record<string, number>} probabilities
+ * @param {{classKey?: string, profile?: any}} [options]
+ */
 export function applyArchetypeActionProfile(probabilities, { classKey, profile = {} } = {}) {
   profile = profile || {};
   const archetypes = normalizeArchetypeWeights(profile.archetypes || profile.archetypeWeights);
@@ -74,9 +78,10 @@ export function handClassStrength(classKey) {
 function archetypeShift(action, weights, strength) {
   let shift = 0;
   for (const [name, weight] of Object.entries(weights)) {
+    const numericWeight = Number(weight);
     const base = ACTION_SHIFTS[name]?.[action] || 0;
     const strengthAdjustment = strengthAdjustmentForAction(action, name, strength);
-    shift += weight * (base + strengthAdjustment);
+    shift += numericWeight * (base + strengthAdjustment);
   }
   return shift;
 }
@@ -100,6 +105,7 @@ function probabilityToLogit(probability) {
 function softmaxObject(logits) {
   const entries = Object.entries(logits);
   const peak = Math.max(...entries.map(([, value]) => value));
+  /** @type {[string, number][]} */
   const exps = entries.map(([key, value]) => [key, Math.exp(value - peak)]);
   const total = exps.reduce((sum, [, value]) => sum + value, 0);
   return Object.fromEntries(exps.map(([key, value]) => [key, value / total]));

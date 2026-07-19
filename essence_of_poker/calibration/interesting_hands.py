@@ -6,6 +6,7 @@ import heapq
 import json
 import sqlite3
 import tomllib
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -48,7 +49,7 @@ def build_interesting_hand_subset(
 
 
 def source_path_from_compact_db(compact_db: str | Path) -> Path:
-    with sqlite3.connect(compact_db) as connection:
+    with closing(sqlite3.connect(compact_db)) as connection:
         row = connection.execute(
             """
             SELECT path
@@ -198,41 +199,42 @@ def write_interesting_subset(
 ) -> None:
     db_path = Path(output_db)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS interesting_hands (
-              hand_key TEXT PRIMARY KEY,
-              score REAL NOT NULL,
-              reasons_json TEXT NOT NULL,
-              metrics_json TEXT NOT NULL,
-              hand_json TEXT NOT NULL,
-              source_path TEXT NOT NULL,
-              selected_at TEXT NOT NULL
-            );
-            DELETE FROM interesting_hands;
-            """
-        )
-        selected_at = datetime.now(timezone.utc).isoformat()
-        connection.executemany(
-            """
-            INSERT INTO interesting_hands (
-              hand_key, score, reasons_json, metrics_json, hand_json, source_path, selected_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    item["hand_key"],
-                    item["score"],
-                    json.dumps(item["reasons"], sort_keys=True),
-                    json.dumps(item["metrics"], sort_keys=True),
-                    json.dumps(item["hand"], sort_keys=True),
-                    str(source_path),
-                    selected_at,
-                )
-                for item in selected
-            ],
-        )
+    with closing(sqlite3.connect(db_path)) as connection:
+        with connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS interesting_hands (
+                  hand_key TEXT PRIMARY KEY,
+                  score REAL NOT NULL,
+                  reasons_json TEXT NOT NULL,
+                  metrics_json TEXT NOT NULL,
+                  hand_json TEXT NOT NULL,
+                  source_path TEXT NOT NULL,
+                  selected_at TEXT NOT NULL
+                );
+                DELETE FROM interesting_hands;
+                """
+            )
+            selected_at = datetime.now(timezone.utc).isoformat()
+            connection.executemany(
+                """
+                INSERT INTO interesting_hands (
+                  hand_key, score, reasons_json, metrics_json, hand_json, source_path, selected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        item["hand_key"],
+                        item["score"],
+                        json.dumps(item["reasons"], sort_keys=True),
+                        json.dumps(item["metrics"], sort_keys=True),
+                        json.dumps(item["hand"], sort_keys=True),
+                        str(source_path),
+                        selected_at,
+                    )
+                    for item in selected
+                ],
+            )
     if output_jsonl:
         jsonl_path = Path(output_jsonl)
         jsonl_path.parent.mkdir(parents=True, exist_ok=True)

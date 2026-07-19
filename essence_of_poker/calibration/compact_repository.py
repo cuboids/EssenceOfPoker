@@ -28,6 +28,12 @@ class CompactCalibrationStore:
     def close(self) -> None:
         self.connection.close()
 
+    def __enter__(self) -> "CompactCalibrationStore":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
+
     def initialize(self) -> None:
         self.connection.executescript(
             """
@@ -175,4 +181,3 @@ class CompactCalibrationStore:
                 """,
                 [(source_key, *key, count) for key, count in count_rows.items()],
             )
-

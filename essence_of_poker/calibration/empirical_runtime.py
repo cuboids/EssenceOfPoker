@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import hashlib
 import json
+from contextlib import closing
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -109,7 +110,7 @@ def empirical_spot_payload(
         facing_aggression=facing_aggression,
         amount_bucket=amount_bucket,
     )
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.row_factory = sqlite3.Row
         selected_source = source_key or default_source_key(connection)
         return empirical_spot_payload_from_connection(
@@ -268,7 +269,7 @@ def build_empirical_spot_cache(
     db = Path(db_path)
     if not db.exists():
         raise FileNotFoundError(db)
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.row_factory = sqlite3.Row
         selected_source = source_key or default_source_key(connection)
         requests = empirical_spot_cache_requests(connection, selected_source)
@@ -476,7 +477,7 @@ def smoothed_probabilities(counts: dict[str, int], alpha: float = DEFAULT_ALPHA)
 
 @lru_cache(maxsize=8)
 def default_source_key_for_path(db_path: str) -> str:
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection:
         return default_source_key(connection)
 
 

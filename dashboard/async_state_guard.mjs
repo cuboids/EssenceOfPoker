@@ -1,5 +1,21 @@
 import { cardId } from "./cards.mjs";
 
+/**
+ * @param {{
+ *   assetVersion?: string|number,
+ *   purpose?: string,
+ *   page?: string,
+ *   handModel?: any,
+ *   handState?: any,
+ *   viewedStreetIndex?: number,
+ *   viewedActionCount?: number|null,
+ *   visibleActions?: any[],
+ *   tableConfig?: any,
+ *   activeVillains?: string[],
+ *   villainShowdown?: boolean,
+ *   showdownHoleCardsByPlayer?: Record<string, any[]>,
+ * }} [options]
+ */
 export function buildAsyncSnapshotKey({
   assetVersion,
   purpose,

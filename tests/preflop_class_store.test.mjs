@@ -14,9 +14,9 @@ test("preflop class store loads and validates all class payload families", async
   const loadedParts = [];
   const store = createPreflopClassStore({
     getBucketCount: () => 7462,
-    readAggregateClass: async () => aggregatePayload,
-    readHiddenVillainClass: async () => hiddenPayload,
-    readPrimaryClass: async () => primaryPayload,
+    readAggregateClassResult: async () => ({ ok: true, value: aggregatePayload }),
+    readHiddenVillainClassResult: async () => ({ ok: true, value: hiddenPayload }),
+    readPrimaryClassResult: async () => ({ ok: true, value: primaryPayload }),
     onPartLoaded: (classKey) => loadedParts.push(classKey),
   });
 
@@ -34,9 +34,9 @@ test("preflop class store loads and validates all class payload families", async
 test("preflop class store marks unavailable classes after missing payloads", async () => {
   const store = createPreflopClassStore({
     getBucketCount: () => 7462,
-    readAggregateClass: async () => null,
-    readHiddenVillainClass: async () => null,
-    readPrimaryClass: async () => null,
+    readAggregateClassResult: async () => ({ ok: false, reason: "miss" }),
+    readHiddenVillainClassResult: async () => ({ ok: false, reason: "miss" }),
+    readPrimaryClassResult: async () => ({ ok: false, reason: "miss" }),
   });
 
   await store.queueLoad(card(2, 1), card(5, 1));

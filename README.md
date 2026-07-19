@@ -180,17 +180,15 @@ The Config page supports 2-player through 6-player tables. Hero is always shown
 as `Hero`; opponents are shown by occupied position. For example, a six-player
 table with Hero on `CO` shows opponent pages `LJ`, `HJ`, `BTN`, `SB`, and `BB`.
 
-Use `New round` to deal hero's two holding cards. Once a round is dealt, the
-button is disabled until `New hand` resets the dashboard to the pre-deal state.
+Use `Deal holding`, `Deal flop`, `Deal turn`, and `Deal river` to advance the
+current hand. `New hand` resets the dashboard and rotates Hero to the next
+position. The left/right controls replay the visible state at street and action
+granularity without moving into future undealt streets.
 
-The dashboard x-axis is fixed to the pre-deal distribution. Hand-category widths
-are proportional to the number of full-deck combinations in those categories, so
-the pre-deal cumulative line is a straight bottom-left to top-right line. When
-cards are dealt, only the cumulative line changes.
-
-The page-level `Straight-line axis` toggle switches each chart to its own
-distribution-adjusted x-axis. In that mode every cumulative line is straight;
-turning it off returns to the fixed pre-deal coordinate system.
+The dashboard has three chart modes. `Bell` shows the same exact distributions
+as a density-style shape. `CDF natural` uses the fixed pre-deal background
+distribution for each asset. `CDF straight` switches each chart to its own
+distribution-adjusted x-axis, so the prior cumulative line is straight.
 
 Generate the dashboard data with:
 
@@ -210,14 +208,16 @@ the repository stores the compressed
 `essence_of_poker/data/preflop_primary_prior_cache.json.gz` artifact, which the
 builder reads directly on a clean checkout.
 
-The preflop hero aggregate cache and hidden-villain cache are backend-owned
-generated data. The dashboard fetches immutable per-class payloads through:
+The preflop hand-aggregate cache and hidden-opponent primary-asset cache are
+backend-owned generated data. Some endpoint and file names still use
+`hidden-villain` as the stable data-contract key. The dashboard fetches
+immutable per-class payloads through:
 
 - `/api/data/preflop-aggregate/<classKey>`
 - `/api/data/preflop-hidden-villain/<classKey>`
 
-This keeps the browser from downloading monolithic startup JSON for data that is
-only needed after a holding class is known.
+This keeps the browser from downloading large startup JSON for data that is only
+needed after a holding class is known.
 
 ## Empirical Range Calibration
 
@@ -380,7 +380,8 @@ The server treats versioned static assets (`?v=...`) as immutable for one year.
 The entry HTML and cache API are served with freshness-oriented/no-store
 policies so deploys and exact cache reads are not pinned by the browser.
 `/api/health` reports the active cache backend, build metadata, and whether the
-required 169 preflop aggregate and hidden-villain class artifacts are present.
+required 169 preflop aggregate, hidden-opponent, and primary-prior class
+artifacts are present.
 
 Redis cache keys include both a schema version and the built dashboard asset
 version. To prewarm for a specific production build, pass the same version that

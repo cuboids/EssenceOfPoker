@@ -46,10 +46,39 @@ test("empirical spot store tracks health, loading, ready, and miss states", asyn
   assert.equal(updates, 2);
   assert.equal(loadedKeys.length, 2);
   assert.equal(store.status(actions), "fallback");
+  assert.deepEqual(store.summary(actions).reasons, { missing: 1 });
   assert.equal(store.evidenceForAction(actions[0]).status, "ready");
   assert.equal(store.evidenceForAction(actions[1]).status, "fallback");
+  assert.equal(store.evidenceForAction(actions[1]).reason, "missing");
   assert.deepEqual(Object.keys(store.spotsForActions(actions)), ["a1"]);
   assert.equal(store.ensureForActions(actions), false);
+});
+
+test("empirical spot store preserves typed unavailable reasons", async () => {
+  const action = { id: "a1", street: "preflop", position: "BTN" };
+  const store = createEmpiricalSpotStore({
+    readHealth: async () => ({ data: { empiricalCalibration: { ok: true } } }),
+    readSpot: async () => ({ ok: false, status: 200, reason: "validation", error: "bad model" }),
+    requestForAction: () => ({
+      street: "preflop",
+      position: "BTN",
+      playerCount: 6,
+      stakeBucket: "micro",
+      yearBucket: "2019+",
+      facingAggression: false,
+      amountBucket: "medium",
+    }),
+  });
+
+  await store.hydrateHealth();
+  store.ensureForActions([action]);
+  await nextTick();
+
+  const evidence = store.evidenceForAction(action);
+  assert.equal(evidence.status, "fallback");
+  assert.equal(evidence.reason, "incompatible");
+  assert.equal(evidence.error, "bad model");
+  assert.deepEqual(store.summary([action]).reasons, { incompatible: 1 });
 });
 
 test("empirical range evidence resolves from action history and visible spot cache", async () => {

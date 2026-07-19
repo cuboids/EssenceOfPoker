@@ -22,6 +22,10 @@ import {
   upsertPlayerAction,
   validateActionSequence,
 } from "../dashboard/player_actions.mjs";
+import {
+  bettingStateForStreet as potBettingStateForStreet,
+  legalActionPlan as potLegalActionPlan,
+} from "../dashboard/player_action_pot.mjs";
 
 const sixMaxOrder = ["villain:LJ", "villain:HJ", "villain:CO", "villain:BTN", "villain:SB", "hero"];
 const stacksFor = (order, stack = 100) => Object.fromEntries(order.map((player) => [player, stack]));
@@ -133,6 +137,15 @@ test("betting state makes preflop checking illegal and caps sizes by stack", () 
   });
   const plan = legalActionPlan({ player: "villain:LJ", street: "preflop", state });
 
+  assert.equal(potBettingStateForStreet({
+    actions: [],
+    street: "preflop",
+    order,
+    stacks: Object.fromEntries(order.map((player) => [player, 100])),
+    smallBlindPlayer: "villain:SB",
+    bigBlindPlayer: "villain:BB",
+  }).currentBet, state.currentBet);
+  assert.deepEqual(potLegalActionPlan({ player: "villain:LJ", street: "preflop", state }), plan);
   assert.deepEqual(plan.actions, ["fold", "call", "raise", "all-in"]);
   assert.equal(plan.toCall, 1);
   assert.equal(plan.callAmount, 1);

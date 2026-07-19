@@ -1,20 +1,22 @@
-import { fullDeck, cardId, sameCard } from "./cards.mjs";
 import { readApiCacheResult, writeApiCacheResult } from "./cache_client.mjs";
-import { cacheNamespace, winShareCacheKey as buildWinShareCacheKey } from "./cache_keys.mjs";
+import { winShareCacheKey as buildWinShareCacheKey } from "./cache_keys.mjs";
 import {
   validateCompactPreflopMultiwayEquityCachePayload,
   validateMultiwayEquityCachePayload,
   validateWinShareCachePayload,
 } from "./cache_payload_contracts.mjs";
 import {
-  DEFAULT_MULTIWAY_EQUITY_SIMS,
   computeMultiwayAggregateEquities,
   computeMultiwayAggregateEquitiesChunked,
-  multiwayEquityCacheKey as buildMultiwayEquityCacheKey,
-  preflopMultiwayEquityCacheKey as buildPreflopMultiwayEquityCacheKey,
-  removeKnownCards,
 } from "./multiway_equity.mjs";
-import { inferPreflopRanges } from "./range_update.mjs";
+import {
+  buildAggregateEquityCacheKey,
+  buildMultiwayEquityPayload,
+  compactPreflopAggregateEquity,
+  expandCachedPreflopAggregateEquity,
+  participantHasNoLegalRange,
+  preflopAggregateEquityUsesCanonicalCache,
+} from "./equity_payload_builder.mjs";
 import { hashString } from "./session_rng.mjs";
 import {
   computePreflopHeroWinSharesKernel,
@@ -191,8 +193,19 @@ export function createEquityController(deps) {
         exact: true,
       };
     }
-    const cacheKey = buildAggregateEquityCacheKey(matchup, payload);
-    const usesCanonicalCache = preflopAggregateEquityUsesCanonicalCache(matchup, payload);
+    const usesCanonicalCache = preflopAggregateEquityUsesCanonicalCache({
+      matchup,
+      payload,
+      handRound: deps.handState()?.round,
+      visibleActions: deps.visiblePlayerActionsForCurrentStreet(),
+    });
+    const cacheKey = buildAggregateEquityCacheKey({
+      matchup,
+      payload,
+      assetVersion: deps.assetVersion(),
+      foldedPages: deps.villainPageKeys().filter(deps.isVillainPageFolded),
+      usesCanonicalCache,
+    });
     const cached = await readApiCacheResult(cacheKey, {
       validator: (candidate) => usesCanonicalCache
         ? validateCompactPreflopMultiwayEquityCachePayload(candidate, { playerCount: payload.participants.length })
@@ -217,67 +230,6 @@ export function createEquityController(deps) {
       },
     ), { cacheKey, family: "aggregate-equity" });
     return result;
-  }
-
-  function buildAggregateEquityCacheKey(matchup, payload) {
-    if (preflopAggregateEquityUsesCanonicalCache(matchup, payload)) {
-      return buildPreflopMultiwayEquityCacheKey({
-        namespace: cacheNamespace(deps.assetVersion()),
-        matchup,
-        heroCards: payload.participants.find((participant) => participant.id === "hero")?.knownHoleCards,
-        activePlayerCount: payload.participants.length,
-        nsims: payload.nsims,
-      });
-    }
-    return buildMultiwayEquityCacheKey({
-      namespace: cacheNamespace(deps.assetVersion()),
-      matchup,
-      participants: payload.participants,
-      knownBoard: payload.knownBoard,
-      deadCards: payload.deadCards,
-      foldedPages: deps.villainPageKeys().filter(deps.isVillainPageFolded),
-      nsims: payload.nsims,
-    });
-  }
-
-  function preflopAggregateEquityUsesCanonicalCache(matchup, payload) {
-    return (
-      matchup === "actual" &&
-      deps.handState()?.round === "preflop" &&
-      payload.knownBoard.length === 0 &&
-      !deps.visiblePlayerActionsForCurrentStreet().some((action) => action.street === "preflop") &&
-      payload.participants.some((participant) => participant.id === "hero" && participant.knownHoleCards?.length === 2)
-    );
-  }
-
-  function compactPreflopAggregateEquity(result, payload) {
-    const villainIds = payload.participants.map((participant) => participant.id).filter((id) => id !== "hero");
-    const villainShare = villainIds.length
-      ? villainIds.reduce((total, id) => total + (result.equities[id] || 0), 0) / villainIds.length
-      : 0;
-    return {
-      hero: result.equities.hero ?? 0,
-      villain: villainShare,
-      playerCount: payload.participants.length,
-      nsims: result.nsims,
-      exact: result.exact,
-    };
-  }
-
-  function expandCachedPreflopAggregateEquity(cached, payload) {
-    if (!Number.isFinite(cached?.hero) || !Number.isFinite(cached?.villain)) {
-      return cached;
-    }
-    return {
-      equities: Object.fromEntries(
-        payload.participants.map((participant) => [
-          participant.id,
-          participant.id === "hero" ? cached.hero : cached.villain,
-        ]),
-      ),
-      nsims: cached.nsims,
-      exact: cached.exact,
-    };
   }
 
   async function computeMultiwayEquityAsync(payload) {
@@ -308,81 +260,20 @@ export function createEquityController(deps) {
   function multiwayEquityPayload(matchup) {
     const knownBoard = cardState.currentBoardCards();
     const handState = deps.handState();
-    const knownHeroCards = handState?.h1 && handState?.h2 ? [handState.h1, handState.h2] : [];
-    const inferredRanges = inferredRangesForEquity(matchup, knownHeroCards, knownBoard);
-    const participants = matchup === "range"
-      ? [
-        rangeParticipant("range", inferredRanges.hero),
-        ...deps.activeVillainPageKeys().map((page) => rangeParticipant(page, inferredRanges[page])),
-      ]
-      : [
-        { id: "hero", knownHoleCards: knownHeroCards.length === 2 ? knownHeroCards : undefined },
-        ...deps.activeVillainPageKeys().map((page) => rangeParticipant(page, inferredRanges[page])),
-      ];
-    const knownUnavailableCards = matchup === "range"
-      ? cardState.knownCardsForHand()
-      : [...knownHeroCards, ...knownBoard];
-    const deck = removeKnownCards(fullDeck, knownUnavailableCards);
-    return {
-      bucketKeys: deps.dashboardData().bucketKeys,
-      bucketCount: deps.dashboardData().bucketCount,
-      participants,
+    return buildMultiwayEquityPayload({
+      matchup,
+      assetVersion: deps.assetVersion(),
+      handState,
       knownBoard,
-      deadCards: knownUnavailableCards,
-      deck,
-      nsims: DEFAULT_MULTIWAY_EQUITY_SIMS,
-      seed: hashString(`${deps.assetVersion()}:${matchup}:${JSON.stringify(knownUnavailableCards.map(cardId))}:${deps.activeVillainPageKeys().join(",")}`),
-    };
-  }
-
-  function inferredRangesForEquity(matchup, knownHeroCards, knownBoard) {
-    const deadCards = matchup === "range" ? knownBoard : [...knownHeroCards, ...knownBoard];
-    const visibleActions = deps.visiblePlayerActionsForCurrentStreet();
-    if (!visibleActions.length) {
-      return {};
-    }
-    return inferPreflopRanges({
+      knownCardsForHand: cardState.knownCardsForHand(),
+      activeVillainPageKeys: deps.activeVillainPageKeys(),
+      visibleActions: deps.visiblePlayerActionsForCurrentStreet(),
       tableConfig: deps.tableConfig(),
-      actions: visibleActions,
-      deadCards,
-      knownBoard,
-      bucketCount: deps.dashboardData().bucketCount,
+      dashboardData: deps.dashboardData(),
       evaluateGradation: deps.evaluateGradation,
       empiricalSpots: deps.empiricalSpotsForCurrentActions(),
       playerProfiles: deps.playerProfilesForInference(),
     });
-  }
-
-  function rangeParticipant(id, range) {
-    if (!range) {
-      return { id };
-    }
-    return {
-      id,
-      rangeKey: compactRangeKey(range),
-      rangeCombos: range.combos.map((combo) => ({
-        cards: combo.cards,
-        weight: combo.weight,
-      })),
-    };
-  }
-
-  function compactRangeKey(range) {
-    const historyKey = (range.history || [])
-      .map((entry) => `${entry.action.type}:${entry.action.amount ?? ""}:${entry.targetFrequency?.toFixed?.(4) ?? ""}`)
-      .join(",");
-    return `${range.position || ""}:${range.summary.weightedCombos.toFixed(3)}:${historyKey}`;
-  }
-
-  function participantHasNoLegalRange(participant, knownBoard = []) {
-    if (!Array.isArray(participant?.rangeCombos)) {
-      return false;
-    }
-    return !participant.rangeCombos.some((combo) =>
-      Number(combo.weight) > 0 &&
-      combo.cards?.length === 2 &&
-      combo.cards.every((card) => !knownBoard.some((boardCard) => sameCard(card, boardCard))),
-    );
   }
 
   async function cachedOrComputedWinSharesForPage(page, { guard = null } = {}) {

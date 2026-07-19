@@ -33,7 +33,7 @@ import { createPlayerActionController } from "./player_action_controller.mjs";
 import { createRangeShowdownPanel } from "./range_showdown_panel.mjs";
 import { createPageShellController } from "./page_shell_controller.mjs";
 import {
-  readEmpiricalSpot,
+  readEmpiricalSpotResult,
   readHealth,
   readPreflopAggregateClassResult,
   readPreflopHiddenVillainClassResult,
@@ -80,7 +80,7 @@ import {
   persistTheme,
 } from "./local_storage_schema.mjs";
 import { createComputationWorker } from "./computation_worker_client.mjs";
-import { inferPreflopRanges } from "./range_update.mjs";
+import { inferRanges } from "./range_inference.mjs";
 import { empiricalSpotRequest } from "./empirical_range_model.mjs";
 import {
   escapeHtml,
@@ -147,7 +147,7 @@ let calibrationContext = appState.ui.calibrationContext || { stakeBucket: "micro
 let playerProfiles = appState.ui.playerProfiles || {};
 const asyncJobs = createAsyncJobRunner({ onError: recordAsyncJobFailure });
 const empiricalEvidence = createEmpiricalEvidenceController({
-  readSpot: readEmpiricalSpot,
+  readSpot: readEmpiricalSpotResult,
   readHealth,
   requestForAction: empiricalRequestForPlayerAction,
   onLoading: () => {
@@ -716,7 +716,7 @@ function showdownHoleCardsForPlayer(playerId) {
 
 function estimatedRangeForPage(page) {
   const deadCards = page === "hero" ? currentBoardCards() : knownCardsForHand();
-  const ranges = inferPreflopRanges({
+  const ranges = inferRanges({
     tableConfig,
     actions: visiblePlayerActionsForCurrentStreet(),
     deadCards,

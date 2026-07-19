@@ -233,13 +233,35 @@ def client_is_loopback(client_address: tuple[str, int] | tuple | None) -> bool:
 
 
 def class_data_status(manifest_path: Path, classes_dir: Path) -> dict:
-    class_count = len(list(classes_dir.glob("*.json.gz"))) if classes_dir.exists() else 0
+    manifest = load_json_object(manifest_path)
+    manifest_classes = sorted(str(class_key) for class_key in manifest.get("classes", [])) if manifest else []
+    class_files = sorted(path.stem.removesuffix(".json") for path in classes_dir.glob("*.json.gz")) if classes_dir.exists() else []
+    missing = sorted(set(manifest_classes) - set(class_files))
+    extra = sorted(set(class_files) - set(manifest_classes))
     return {
-        "ok": manifest_path.exists() and class_count == 169,
+        "ok": (
+            manifest_path.exists() and
+            classes_dir.exists() and
+            len(manifest_classes) == 169 and
+            class_files == manifest_classes
+        ),
         "manifest": str(manifest_path),
         "classesDir": str(classes_dir),
-        "classCount": class_count,
+        "manifestClasses": len(manifest_classes),
+        "classCount": len(class_files),
+        "missing": missing[:5],
+        "extra": extra[:5],
     }
+
+
+def load_json_object(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def empirical_calibration_status(db_path: Path) -> dict:

@@ -58,7 +58,7 @@ def generated_data_manifest() -> dict[str, Any]:
     for name, path in DATA_ARTIFACTS.items():
         artifacts[name] = file_manifest(path)
         if name in CLASS_DIRS:
-            artifacts[name]["classFiles"] = len(list(CLASS_DIRS[name].glob("*.json.gz"))) if CLASS_DIRS[name].exists() else 0
+            artifacts[name]["classDirectory"] = class_directory_manifest(CLASS_DIRS[name])
             manifest = read_json(path) if path.exists() else {}
             artifacts[name]["manifestClasses"] = len(manifest.get("classes", []))
     return artifacts
@@ -80,6 +80,27 @@ def file_manifest(path: Path) -> dict[str, Any]:
         "path": str(path),
         "bytes": len(payload),
         "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def class_directory_manifest(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"ok": False, "path": str(path), "error": "missing"}
+    files = sorted(path.glob("*.json.gz"))
+    digest = hashlib.sha256()
+    total_bytes = 0
+    for file_path in files:
+        payload = file_path.read_bytes()
+        digest.update(file_path.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(payload).digest())
+        total_bytes += len(payload)
+    return {
+        "ok": True,
+        "path": str(path),
+        "files": len(files),
+        "bytes": total_bytes,
+        "sha256": digest.hexdigest(),
     }
 
 

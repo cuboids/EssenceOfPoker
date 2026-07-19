@@ -1,7 +1,7 @@
 import { cardId, sameCard } from "./cards.mjs";
 import { preflopClassKeyForCards } from "./cache_keys.mjs";
 import { curveFromTrimmedCounts, curvesForKnownAssets as curvesForKnownAssetsKernel } from "./curve_distributions.mjs";
-import { inferPreflopRanges } from "./range_update.mjs";
+import { inferRanges } from "./range_inference.mjs";
 import { hashString } from "./session_rng.mjs";
 import {
   DEFAULT_RANGE_CURVE_SIMS,
@@ -370,7 +370,7 @@ export function createCurveController(deps) {
     }
     const deadCards = page === "range" ? cardState.currentBoardCards() : cardState.knownCardsForHand();
     const visibleActions = deps.visiblePlayerActionsForCurrentStreet();
-    return inferPreflopRanges({
+    return inferRanges({
       tableConfig: deps.tableConfig(),
       actions: visibleActions,
       deadCards,

@@ -18,10 +18,24 @@ import {
   updatePreflopRangeForAction,
 } from "../dashboard/range_model.mjs";
 import { legalTwoCardCombos } from "../dashboard/range_universe.mjs";
+import { inferRanges } from "../dashboard/range_inference.mjs";
 import { inferPreflopRanges } from "../dashboard/range_update.mjs";
+import { DEFAULT_PREFLOP_RANGE_MODEL, rangeModelArtifact } from "../dashboard/range_model_defaults.mjs";
 import { rangeExplanation } from "../dashboard/range_explainability.mjs";
 
 const card = (rank, suit) => ({ rank, suit, id: (rank - 1) * 4 + (suit - 1) });
+
+test("range model defaults are isolated as a frozen versionable artifact", () => {
+  assert.equal(DEFAULT_PREFLOP_RANGE_MODEL.name, "heuristic_empirical_hybrid");
+  assert.equal(Object.isFrozen(DEFAULT_PREFLOP_RANGE_MODEL), true);
+  assert.equal(Object.isFrozen(DEFAULT_PREFLOP_RANGE_MODEL.openRaiseFrequency[6]), true);
+  assert.deepEqual(rangeModelArtifact(DEFAULT_PREFLOP_RANGE_MODEL), {
+    kind: "range_model_parameters",
+    name: "heuristic_empirical_hybrid",
+    version: "heuristic_empirical_hybrid",
+    model: DEFAULT_PREFLOP_RANGE_MODEL,
+  });
+});
 
 test("range universe enumerates legal two-card combos and respects blockers", () => {
   const combos = legalTwoCardCombos();
@@ -116,7 +130,7 @@ test("preflop aggression depth tightens open, three-bet, four-bet, and five-bet 
 
 test("range inference passes table size into action calibration", () => {
   const action = { id: "a1", player: "hero", street: "preflop", type: "raise", amount: 3 };
-  const headsUp = inferPreflopRanges({
+  const headsUp = inferRanges({
     tableConfig: { playerCount: 2, heroPosition: "SB", positions: ["SB", "BB"] },
     actions: [action],
   });

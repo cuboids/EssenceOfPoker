@@ -120,10 +120,12 @@ class ServerTests(unittest.TestCase):
             self.assertFalse(class_data_status(manifest, classes)["ok"])
             for index in range(169):
                 (classes / f"{index}.json.gz").write_bytes(b"")
+            manifest.write_text(json.dumps({"classes": [str(index) for index in range(169)]}), encoding="utf-8")
 
             status = class_data_status(manifest, classes)
             self.assertTrue(status["ok"])
             self.assertEqual(status["classCount"], 169)
+            self.assertEqual(status["manifestClasses"], 169)
 
     def test_static_cache_policy_distinguishes_versioned_assets(self) -> None:
         self.assertEqual(static_cache_control("/app.js?v=abc123"), "public, max-age=31536000, immutable")

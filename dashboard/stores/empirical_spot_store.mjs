@@ -19,7 +19,7 @@ export function createEmpiricalSpotStore({
   onUpdated = () => {},
 } = {}) {
   const cache = new Map();
-  const misses = new Set();
+  const misses = new Map();
   const loads = new Set();
   let health = null;
 
@@ -38,14 +38,17 @@ export function createEmpiricalSpotStore({
     const keys = new Set(requests.map(empiricalSpotCacheKey));
     let ready = 0;
     let missed = 0;
+    const reasons = {};
     for (const key of keys) {
       if (cache.has(key)) {
         ready += 1;
       } else if (misses.has(key)) {
         missed += 1;
+        const reason = misses.get(key)?.reason || "missing";
+        reasons[reason] = (reasons[reason] || 0) + 1;
       }
     }
-    return { total: keys.size, ready, misses: missed, pending: isLoading() };
+    return { total: keys.size, ready, misses: missed, pending: isLoading(), reasons };
   }
 
   function status(actions = []) {
@@ -71,14 +74,14 @@ export function createEmpiricalSpotStore({
   function evidenceForAction(action) {
     const request = requestForAction?.(action);
     if (!request) {
-      return { status: "fallback" };
+      return { status: "fallback", reason: "disabled" };
     }
     const key = empiricalSpotCacheKey(request);
     if (cache.has(key)) {
       return { status: "ready", payload: cache.get(key), request };
     }
     if (misses.has(key)) {
-      return { status: "fallback", request };
+      return { status: "fallback", request, ...misses.get(key) };
     }
     return { status: "pending", request };
   }
@@ -121,12 +124,19 @@ export function createEmpiricalSpotStore({
             status: "fallback",
             message: "Empirical evidence is unavailable for this exact spot.",
             request: actionEvidence.request,
+            reason: actionEvidence.reason || "missing",
+            error: actionEvidence.error,
           };
         }
       }
       const key = entry.request ? empiricalSpotCacheKey(entry.request) : null;
       if (key && misses.has(key)) {
-        return { status: "fallback", message: "Empirical evidence is unavailable for this exact spot.", request: entry.request };
+        return {
+          status: "fallback",
+          message: "Empirical evidence is unavailable for this exact spot.",
+          request: entry.request,
+          ...misses.get(key),
+        };
       }
       return key && loads.has(key)
         ? { status: "pending", message: "Empirical evidence is loading.", request: entry.request }
@@ -159,16 +169,17 @@ export function createEmpiricalSpotStore({
     onLoadingChange();
     Promise.all(missing.map(async ({ key, request }) => {
       const payload = await readSpot(request);
-      if (payload) {
-        cache.set(key, payload);
+      const normalized = normalizeSpotReadResult(payload);
+      if (normalized.ok) {
+        cache.set(key, normalized.payload);
       } else {
-        misses.add(key);
+        misses.set(key, normalized.miss);
       }
       loads.delete(key);
     })).then(onUpdated).catch(() => {
       for (const { key } of missing) {
         loads.delete(key);
-        misses.add(key);
+        misses.set(key, { reason: "network_error" });
       }
       onUpdated();
     });
@@ -196,6 +207,39 @@ export function createEmpiricalSpotStore({
     ensureForActions,
     isLoading,
   };
+}
+
+function normalizeSpotReadResult(result) {
+  if (result?.ok === true && result.value?.ok === true) {
+    return { ok: true, payload: result.value };
+  }
+  if (result?.ok === true) {
+    return { ok: true, payload: result };
+  }
+  if (result && result.ok === false) {
+    return {
+      ok: false,
+      miss: {
+        reason: empiricalMissReason(result),
+        error: result.error,
+        statusCode: result.status,
+      },
+    };
+  }
+  return { ok: false, miss: { reason: "missing" } };
+}
+
+function empiricalMissReason(result) {
+  if (result.reason === "validation") {
+    return "incompatible";
+  }
+  if (result.reason === "network") {
+    return "network_error";
+  }
+  if (result.status === 404 || result.reason === "payload") {
+    return "missing";
+  }
+  return result.reason || "unavailable";
 }
 
 export function empiricalSpotCacheKey(request) {

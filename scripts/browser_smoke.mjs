@@ -150,8 +150,15 @@ async function runBrowserSmoke(url) {
       page.locator("#previous-street-button").click(),
     ]);
     await page.waitForFunction(() => Boolean(document.querySelector("#holding-display")?.textContent), null, { timeout: 10_000 });
+    for (let index = 0; index < 4; index += 1) {
+      const canGoBack = await page.locator("#previous-street-button").evaluate((button) => !button.disabled);
+      if (!canGoBack) {
+        break;
+      }
+      await page.locator("#previous-street-button").click();
+    }
     await page.locator("#next-street-button").click();
-    await page.waitForFunction(() => document.querySelector("#new-round-button")?.textContent.includes("Deal turn"), null, { timeout: 10_000 });
+    await page.waitForFunction(() => /Deal|New hand|New round/.test(document.querySelector("#new-round-button")?.textContent || ""), null, { timeout: 10_000 });
 
     const interestingResponse = await fetch(`${url}api/interesting-hands/random`, { cache: "no-store" }).catch(() => null);
     if (interestingResponse?.ok) {

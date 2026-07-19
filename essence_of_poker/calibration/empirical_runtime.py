@@ -112,38 +112,58 @@ def empirical_spot_payload(
     with sqlite3.connect(db) as connection:
         connection.row_factory = sqlite3.Row
         selected_source = source_key or default_source_key(connection)
-        levels = level_count_maps(connection, selected_source, request)
-        global_counts = count_rows(connection, selected_source, {})
-        global_probabilities = smoothed_probabilities(global_counts, alpha)
-        hand_classes: dict[str, Any] = {}
-        fallback_usage: dict[str, int] = {name: 0 for name, _ in levels}
-        fallback_usage["global"] = 0
-        for hand_class in HAND_CLASSES:
-            entry = best_hand_class_entry(
-                hand_class,
-                levels,
-                global_counts,
-                global_probabilities,
-                alpha=alpha,
-                min_exact_count=min_exact_count,
-            )
-            fallback_usage[entry["level"]] = fallback_usage.get(entry["level"], 0) + 1
-            hand_classes[hand_class] = entry
-        return {
-            "ok": True,
-            "kind": "empirical_spot_baseline",
-            "version": 1,
-            "source": source_summary(connection, selected_source),
-            "request": request,
-            "smoothing": {
-                "alpha": alpha,
-                "minExactCount": min_exact_count,
-                "trainingFolds": [1, 2, 3, 4],
-            },
-            "fallbackUsage": fallback_usage,
-            "spotProbabilities": global_probabilities if not levels else spot_probabilities(levels, global_probabilities, alpha),
-            "handClasses": hand_classes,
-        }
+        return empirical_spot_payload_from_connection(
+            connection,
+            selected_source,
+            request,
+            source=source_summary(connection, selected_source),
+            global_counts=count_rows(connection, selected_source, {}),
+            alpha=alpha,
+            min_exact_count=min_exact_count,
+        )
+
+
+def empirical_spot_payload_from_connection(
+    connection: sqlite3.Connection,
+    selected_source: str,
+    request: dict[str, Any],
+    *,
+    source: dict[str, Any],
+    global_counts: dict[str, int],
+    alpha: float,
+    min_exact_count: int,
+) -> dict[str, Any]:
+    levels = level_count_maps(connection, selected_source, request)
+    global_probabilities = smoothed_probabilities(global_counts, alpha)
+    hand_classes: dict[str, Any] = {}
+    fallback_usage: dict[str, int] = {name: 0 for name, _ in levels}
+    fallback_usage["global"] = 0
+    for hand_class in HAND_CLASSES:
+        entry = best_hand_class_entry(
+            hand_class,
+            levels,
+            global_counts,
+            global_probabilities,
+            alpha=alpha,
+            min_exact_count=min_exact_count,
+        )
+        fallback_usage[entry["level"]] = fallback_usage.get(entry["level"], 0) + 1
+        hand_classes[hand_class] = entry
+    return {
+        "ok": True,
+        "kind": "empirical_spot_baseline",
+        "version": 1,
+        "source": source,
+        "request": request,
+        "smoothing": {
+            "alpha": alpha,
+            "minExactCount": min_exact_count,
+            "trainingFolds": [1, 2, 3, 4],
+        },
+        "fallbackUsage": fallback_usage,
+        "spotProbabilities": global_probabilities if not levels else spot_probabilities(levels, global_probabilities, alpha),
+        "handClasses": hand_classes,
+    }
 
 
 def normalize_request(**kwargs: Any) -> dict[str, Any]:
@@ -253,23 +273,19 @@ def build_empirical_spot_cache(
         selected_source = source_key or default_source_key(connection)
         requests = empirical_spot_cache_requests(connection, selected_source)
         source = source_summary(connection, selected_source)
-
-    spots = {}
-    for request in requests:
-        payload = empirical_spot_payload(
-            db_path=db,
-            street=request["street"],
-            position=request["position"],
-            player_count=request["playerCount"],
-            stake_bucket=request["stakeBucket"],
-            year_bucket=request["yearBucket"],
-            facing_aggression=request["facingAggression"],
-            amount_bucket=request["amountBucket"],
-            source_key=selected_source,
-            alpha=alpha,
-            min_exact_count=min_exact_count,
-        )
-        spots[empirical_spot_cache_key(request)] = payload
+        global_counts = count_rows(connection, selected_source, {})
+        spots = {
+            empirical_spot_cache_key(request): empirical_spot_payload_from_connection(
+                connection,
+                selected_source,
+                request,
+                source=source,
+                global_counts=global_counts,
+                alpha=alpha,
+                min_exact_count=min_exact_count,
+            )
+            for request in requests
+        }
 
     artifact = {
         "ok": True,

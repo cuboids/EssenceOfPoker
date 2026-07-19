@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import sqlite3
+import hashlib
 import json
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from essence_of_poker.version_registry import VERSION_REGISTRY
 
 ACTION_TYPES = ("fold", "check", "call", "bet", "raise", "all-in")
 HAND_CLASSES = tuple(
@@ -21,6 +24,8 @@ DEFAULT_SPOT_CACHE_PATH = Path(__file__).resolve().parents[1] / "data" / "empiri
 DEFAULT_ALPHA = 0.5
 DEFAULT_MIN_EXACT_COUNT = 25
 TRAINING_FOLD_PREDICATE = "fold != 0"
+EXPECTED_EMPIRICAL_SPOT_CACHE_VERSION = VERSION_REGISTRY.generated_data["empiricalSpotCache"]
+EXPECTED_RANGE_MODEL_VERSION = VERSION_REGISTRY.models["rangeEngine"]
 
 
 def empirical_spot_payload_cached(
@@ -48,11 +53,18 @@ def empirical_spot_payload_cached(
         amount_bucket=amount_bucket,
     )
     cache = load_empirical_spot_cache(str(Path(cache_path)))
-    if cache:
+    if cache and empirical_spot_cache_compatibility(cache)["ok"]:
         payload = cache.get("spots", {}).get(empirical_spot_cache_key(request))
         if payload:
             payload = dict(payload)
-            payload["cache"] = {"hit": True, "path": str(cache_path), "version": cache.get("version")}
+            payload["cache"] = {
+                "hit": True,
+                "path": str(cache_path),
+                "version": cache.get("version"),
+                "contractVersion": cache.get("contractVersion"),
+                "modelVersion": cache.get("modelVersion"),
+                "sourceDb": cache.get("sourceDb"),
+            }
             return payload
     payload = empirical_spot_payload(
         db_path=db_path,
@@ -185,13 +197,43 @@ def empirical_spot_cache_status(cache_path: str | Path = DEFAULT_SPOT_CACHE_PATH
         return {"ok": False, "path": str(path), "spotCount": 0}
     if not payload:
         return {"ok": False, "path": str(path), "spotCount": 0}
+    compatibility = empirical_spot_cache_compatibility(payload)
     return {
-        "ok": True,
+        "ok": compatibility["ok"],
         "path": str(path),
         "version": payload.get("version"),
+        "contractVersion": payload.get("contractVersion"),
+        "modelVersion": payload.get("modelVersion"),
         "spotCount": len(payload.get("spots", {})),
         "generatedAt": payload.get("generatedAt"),
         "source": payload.get("source"),
+        "sourceDb": payload.get("sourceDb"),
+        "compatibility": compatibility,
+    }
+
+
+def empirical_spot_cache_compatibility(payload: dict[str, Any]) -> dict[str, Any]:
+    errors: list[str] = []
+    if payload.get("contractVersion") != EXPECTED_EMPIRICAL_SPOT_CACHE_VERSION:
+        errors.append("empirical spot cache contract version mismatch")
+    if payload.get("modelVersion") != EXPECTED_RANGE_MODEL_VERSION:
+        errors.append("range model version mismatch")
+    if not payload.get("generatedAt"):
+        errors.append("missing generation timestamp")
+    source_db = payload.get("sourceDb") or {}
+    if not source_db.get("sha256"):
+        errors.append("missing source database hash")
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "expected": {
+            "contractVersion": EXPECTED_EMPIRICAL_SPOT_CACHE_VERSION,
+            "modelVersion": EXPECTED_RANGE_MODEL_VERSION,
+        },
+        "actual": {
+            "contractVersion": payload.get("contractVersion"),
+            "modelVersion": payload.get("modelVersion"),
+        },
     }
 
 
@@ -233,8 +275,11 @@ def build_empirical_spot_cache(
         "ok": True,
         "kind": "empirical_spot_cache",
         "version": 1,
+        "contractVersion": EXPECTED_EMPIRICAL_SPOT_CACHE_VERSION,
+        "modelVersion": EXPECTED_RANGE_MODEL_VERSION,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "source": source,
+        "sourceDb": source_database_summary(db),
         "smoothing": {
             "alpha": alpha,
             "minExactCount": min_exact_count,
@@ -248,6 +293,15 @@ def build_empirical_spot_cache(
     output.write_text(json.dumps(artifact, sort_keys=True, separators=(",", ":")), encoding="utf-8")
     load_empirical_spot_cache.cache_clear()
     return artifact
+
+
+def source_database_summary(db_path: Path) -> dict[str, Any]:
+    payload = db_path.read_bytes()
+    return {
+        "path": str(db_path),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "bytes": len(payload),
+    }
 
 
 def empirical_spot_cache_requests(connection: sqlite3.Connection, source_key: str) -> list[dict[str, Any]]:

@@ -262,10 +262,38 @@ hand = 123
 
             self.assertTrue(output.exists())
             self.assertGreater(artifact["spotCount"], 0)
+            self.assertEqual(artifact["contractVersion"], "empirical-spot-cache-v1")
+            self.assertEqual(artifact["modelVersion"], "range-engine-v1")
+            self.assertIn("sha256", artifact["sourceDb"])
             self.assertTrue(status["ok"])
+            self.assertTrue(status["compatibility"]["ok"])
+            self.assertEqual(status["sourceDb"]["sha256"], artifact["sourceDb"]["sha256"])
             self.assertTrue(payload["ok"])
             self.assertTrue(payload["cache"]["hit"])
+            self.assertEqual(payload["cache"]["contractVersion"], "empirical-spot-cache-v1")
             self.assertEqual(len(payload["handClasses"]), 169)
+
+    def test_empirical_spot_cache_status_rejects_incompatible_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "empirical_spots.json"
+            output.write_text(
+                json.dumps({
+                    "ok": True,
+                    "kind": "empirical_spot_cache",
+                    "version": 1,
+                    "contractVersion": "old-version",
+                    "modelVersion": "old-model",
+                    "generatedAt": "2026-01-01T00:00:00+00:00",
+                    "spots": {},
+                    "sourceDb": {"sha256": "abc", "bytes": 1},
+                }),
+                encoding="utf-8",
+            )
+
+            status = empirical_spot_cache_status(output)
+
+            self.assertFalse(status["ok"])
+            self.assertIn("contract version mismatch", " ".join(status["compatibility"]["errors"]))
 
     def test_compact_softmax_model_trains_from_feature_counts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

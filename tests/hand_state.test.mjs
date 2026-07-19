@@ -10,13 +10,13 @@ import {
   dealTurnModel,
   editKnownCardModel,
   emptyHandModel,
-  legacyHandState,
   pendingHoleCards,
   rebuildTimeline,
   revealVillainModel,
   setPendingHoleCard,
   startPreflopModel,
 } from "../dashboard/hand_state.mjs";
+import { handViewFromModel } from "../dashboard/hand_view.mjs";
 
 const card = (rank, suit) => ({ rank, suit, id: (rank - 1) * 4 + (suit - 1) });
 
@@ -26,7 +26,7 @@ test("pending hole-card edits move empty to partial_holding without a legacy han
   assert.equal(assertCanonicalHandModel(model), true);
   assert.equal(model.phase, HAND_PHASES.PARTIAL_HOLDING);
   assert.deepEqual(pendingHoleCards(model), [card(2, 1), null]);
-  assert.equal(legacyHandState(model), null);
+  assert.equal(handViewFromModel(model), null);
 });
 
 test("preflop normalizes hole-card order and hero-relative suits", () => {
@@ -68,7 +68,7 @@ test("turn, river, and showdown phases are explicit", () => {
   assert.equal(turn.phase, HAND_PHASES.TURN);
   assert.equal(river.phase, HAND_PHASES.RIVER);
   assert.equal(showdown.phase, HAND_PHASES.SHOWDOWN);
-  assert.equal(legacyHandState(showdown).round, HAND_PHASES.RIVER);
+  assert.equal(handViewFromModel(showdown).round, HAND_PHASES.RIVER);
   assert.ok(showdown.villain.every((villainCard) => villainCard.relativeSuit));
 });
 

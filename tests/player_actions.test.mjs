@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fc from "fast-check";
 import test from "node:test";
 
 import {
@@ -576,3 +577,71 @@ test("formal validator rejects extra actions after a street has closed", () => {
     /already closed/,
   );
 });
+
+test("property: legally generated betting prefixes remain formally valid", () => {
+  fc.assert(
+    fc.property(fc.array(fc.integer({ min: 0, max: 5 }), { minLength: 1, maxLength: 32 }), (choices) => {
+      const order = ["LJ", "HJ", "CO", "BTN", "SB", "BB"];
+      const context = {
+        orderForStreet: () => order,
+        stacks: Object.fromEntries(order.map((player) => [player, 100])),
+        smallBlindPlayer: "SB",
+        bigBlindPlayer: "BB",
+        smallBlind: 0.5,
+        bigBlind: 1,
+      };
+      let actions = [];
+      for (const choice of choices) {
+        const state = bettingStateForStreet({
+          actions,
+          street: "preflop",
+          order,
+          stacks: context.stacks,
+          smallBlindPlayer: "SB",
+          bigBlindPlayer: "BB",
+        });
+        if (bettingRoundIsClosed({
+          order,
+          actions,
+          street: "preflop",
+          canAct: (player) => state.remainingStack(player) > 0,
+        })) {
+          break;
+        }
+        const actor = nextActionPlayer({
+          order,
+          actions,
+          street: "preflop",
+          canAct: (player) => state.remainingStack(player) > 0,
+        });
+        if (!actor) {
+          break;
+        }
+        const plan = legalActionPlan({ player: actor, street: "preflop", state });
+        const type = plan.actions[choice % plan.actions.length];
+        const nextAction = actionFromPlan(actor, type, plan);
+        actions = appendLegalPlayerAction(actions, nextAction, context);
+        assert.equal(validateActionSequence(actions, context), true);
+      }
+    }),
+    { numRuns: 100 },
+  );
+});
+
+function actionFromPlan(player, type, plan) {
+  if (type === "fold" || type === "check") {
+    return { player, street: "preflop", type };
+  }
+  if (type === "call") {
+    return { player, street: "preflop", type, amount: plan.callAmount };
+  }
+  if (type === "all-in") {
+    return { player, street: "preflop", type, amount: plan.maxAmount };
+  }
+  return {
+    player,
+    street: "preflop",
+    type,
+    amount: type === "bet" ? plan.minBet : plan.minRaiseAmount,
+  };
+}

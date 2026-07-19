@@ -144,6 +144,24 @@ async function runBrowserSmoke(url) {
     await page.waitForFunction(() => document.querySelector("#new-round-button")?.textContent.includes("Deal flop"), null, { timeout: 10_000 });
     await page.locator("#next-street-button").click();
     await page.waitForFunction(() => document.querySelector("#new-round-button")?.textContent.includes("Deal turn"), null, { timeout: 10_000 });
+    await Promise.all([
+      page.locator("#previous-street-button").click(),
+      page.locator("#next-street-button").click(),
+      page.locator("#previous-street-button").click(),
+    ]);
+    await page.waitForFunction(() => Boolean(document.querySelector("#holding-display")?.textContent), null, { timeout: 10_000 });
+    await page.locator("#next-street-button").click();
+    await page.waitForFunction(() => document.querySelector("#new-round-button")?.textContent.includes("Deal turn"), null, { timeout: 10_000 });
+
+    const interestingResponse = await fetch(`${url}api/interesting-hands/random`, { cache: "no-store" }).catch(() => null);
+    if (interestingResponse?.ok) {
+      await page.locator("#interesting-hand-button").click();
+      await page.waitForFunction(() => document.querySelector("#previous-street-button")?.disabled === true, null, { timeout: 10_000 });
+      await page.locator("#next-street-button").click();
+      await page.waitForFunction(() => document.querySelectorAll(".action-tag:not(.action-tag-forced)").length >= 1, null, { timeout: 10_000 });
+      await page.locator("#previous-street-button").click();
+      await page.waitForFunction(() => document.querySelector("#previous-street-button")?.disabled === true, null, { timeout: 10_000 });
+    }
 
     if (requestedUrls.some((requestUrl) => requestUrl.includes("data/preflop_aggregate_cache.json"))) {
       throw new Error("browser requested removed monolithic preflop aggregate cache");

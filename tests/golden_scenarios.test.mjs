@@ -12,12 +12,12 @@ import {
   dealTurnModel,
   editKnownCardModel,
   emptyHandModel,
-  legacyHandState,
   pendingHoleCards,
   rebuildTimeline,
   setPendingHoleCard,
   startPreflopModel,
 } from "../dashboard/hand_state.mjs";
+import { handViewFromModel } from "../dashboard/hand_view.mjs";
 
 const data = JSON.parse(fs.readFileSync(new URL("../dashboard/data/prior_portfolio.json", import.meta.url), "utf8"));
 const bucketLookup = new Map(data.bucketKeys.map((bucket) => [bucket.key, bucket.gradation]));
@@ -80,7 +80,7 @@ test("golden river scenario keeps the winning concrete hero asset active", () =>
     ),
     card(9, 4),
   );
-  const state = legacyHandState(model);
+  const state = handViewFromModel(model);
   const assets = data.portfolios.hero.assets;
   const curves = curvesForKnownAssets({
     assets,

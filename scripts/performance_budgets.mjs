@@ -6,7 +6,8 @@ import { performance } from "node:perf_hooks";
 import { fullDeck, sameCard } from "../dashboard/cards.mjs";
 import { distributionFor } from "../dashboard/curve_distributions.mjs";
 import { createHandEvaluator } from "../dashboard/evaluation.mjs";
-import { legacyHandState, startPreflopModel } from "../dashboard/hand_state.mjs";
+import { startPreflopModel } from "../dashboard/hand_state.mjs";
+import { handViewFromModel } from "../dashboard/hand_view.mjs";
 import { hiddenVillainCurves } from "../dashboard/villain_range.mjs";
 import { computeMultiwayAggregateEquities } from "../dashboard/multiway_equity.mjs";
 import { computePreflopHeroWinSharesKernel } from "../dashboard/win_shares.mjs";
@@ -75,7 +76,7 @@ const benchmarks = [
     budgetMs: 120,
     run() {
       const model = startPreflopModel([card(2, 1), card(12, 2)], [card(6, 3), card(7, 4)]);
-      const handState = legacyHandState(model);
+      const handState = handViewFromModel(model);
       const remainingDeck = fullDeck
         .filter((deckCard) => ![handState.h1, handState.h2].some((knownCard) => sameCard(deckCard, knownCard)))
         .slice(0, 9);

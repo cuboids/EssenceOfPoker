@@ -4,7 +4,8 @@ import test from "node:test";
 
 import { cardCompare, fullDeck, sameCard } from "../dashboard/cards.mjs";
 import { createHandEvaluator } from "../dashboard/evaluation.mjs";
-import { startPreflopModel, dealFlopModel, legacyHandState } from "../dashboard/hand_state.mjs";
+import { startPreflopModel, dealFlopModel } from "../dashboard/hand_state.mjs";
+import { handViewFromModel } from "../dashboard/hand_view.mjs";
 import { AGGREGATE_INDEX_GROUPS, aggregateGradationsForSevenCards } from "../dashboard/portfolio_curves.mjs";
 import {
   computePreflopHeroWinSharesBruteForce,
@@ -56,7 +57,7 @@ test("generic runout win shares sum to 100% and preserve turn/river symmetry", (
     startPreflopModel([card(2, 1), card(12, 2)], [card(6, 3), card(7, 4)]),
     [card(1, 3), card(8, 1), card(10, 2)],
   );
-  const handState = legacyHandState(model);
+  const handState = handViewFromModel(model);
   const knownState = {
     H_1: handState.h1,
     H_2: handState.h2,
@@ -87,7 +88,7 @@ test("generic runout win shares sum to 100% and preserve turn/river symmetry", (
 
 test("optimized preflop win shares equal brute force on reduced deterministic decks", () => {
   const model = startPreflopModel([card(2, 1), card(12, 2)], [card(6, 3), card(7, 4)]);
-  const handState = legacyHandState(model);
+  const handState = handViewFromModel(model);
   const samples = [
     [card(1, 3), card(3, 1), card(5, 4), card(8, 2), card(13, 3)],
     [card(4, 1), card(4, 2), card(9, 3), card(10, 4), card(11, 1), card(13, 4)],
@@ -123,7 +124,7 @@ test("optimized preflop win shares equal brute force on reduced deterministic de
 test("preflop optimized path is invariant to physical deck ordering", () => {
   const [h1, h2] = [card(3, 1), card(11, 2)].sort(cardCompare);
   const model = startPreflopModel([h1, h2], [card(6, 3), card(7, 4)]);
-  const handState = legacyHandState(model);
+  const handState = handViewFromModel(model);
   const remainingDeck = without(fullDeck, [handState.h1, handState.h2]).slice(0, 7);
   const reversedDeck = [...remainingDeck].reverse();
 

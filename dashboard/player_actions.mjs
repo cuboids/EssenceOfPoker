@@ -1,8 +1,27 @@
-export const ACTION_STREETS = Object.freeze(["preflop", "flop", "turn", "river"]);
-export const ACTION_TYPES = Object.freeze(["fold", "check", "call", "bet", "raise", "all-in"]);
-export const FORCED_ACTION_TYPES = Object.freeze(["small-blind", "big-blind"]);
-export const DEFAULT_SMALL_BLIND = 0.5;
-export const DEFAULT_BIG_BLIND = 1;
+import {
+  ACTION_STREETS,
+  ACTION_TYPES,
+  DEFAULT_BIG_BLIND,
+  DEFAULT_SMALL_BLIND,
+  FORCED_ACTION_TYPES,
+  STREET_INDEX,
+} from "./player_action_constants.mjs";
+import {
+  actionLabel,
+  actionTagLabel,
+  formatAmount,
+} from "./player_action_formatting.mjs";
+
+export {
+  ACTION_STREETS,
+  ACTION_TYPES,
+  DEFAULT_BIG_BLIND,
+  DEFAULT_SMALL_BLIND,
+  FORCED_ACTION_TYPES,
+  actionLabel,
+  actionTagLabel,
+  formatAmount,
+};
 
 /**
  * @typedef {{id?: string, player: string, street: string, type: string, amount?: number, forced?: boolean}} PlayerAction
@@ -12,13 +31,6 @@ export const DEFAULT_BIG_BLIND = 1;
  * @typedef {{actions: PlayerAction[], street: string, order: string[], stacks: StackMap, smallBlindPlayer?: string | null, bigBlindPlayer?: string | null, smallBlind?: number, bigBlind?: number}} BettingStateOptions
  * @typedef {{order: string[], actions: PlayerAction[], street: string, foldedBeforeStreet?: (player: string) => boolean, canAct?: (player: string) => boolean, smallBlind?: number, bigBlind?: number}} ActionOrderOptions
  */
-
-const STREET_INDEX = Object.freeze({
-  preflop: 0,
-  flop: 1,
-  turn: 2,
-  river: 3,
-});
 
 export function normalizePlayerAction(action) {
   if (!action || typeof action !== "object") {
@@ -294,29 +306,6 @@ export function playerIsAllInByStreet({
   return state.remainingStack(player) <= 0;
 }
 
-export function actionLabel(action) {
-  if (!action) {
-    return "";
-  }
-  return action.amount != null ? `${action.type} ${formatAmount(action.amount)}` : action.type;
-}
-
-export function actionTagLabel(action, streetActions = []) {
-  if (!action) {
-    return "";
-  }
-  if (action.type === "small-blind") {
-    return `posts SB ${formatAmount(action.amount)}`;
-  }
-  if (action.type === "big-blind") {
-    return `posts BB ${formatAmount(action.amount)}`;
-  }
-  if (action.type === "bet" || action.type === "raise") {
-    return aggressiveActionLabel(action, streetActions);
-  }
-  return action.type;
-}
-
 /**
  * @param {BettingStateOptions} options
  */
@@ -530,31 +519,12 @@ export function actionLegalityError(actions, {
   return null;
 }
 
-export function formatAmount(value) {
-  const amount = normalizeAmount(value);
-  return Number.isInteger(amount) ? `${amount}` : `${amount.toFixed(1)}`;
-}
-
 function normalizeAmount(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error("amount must be a positive number");
   }
   return Math.round(amount * 10) / 10;
-}
-
-function aggressiveActionLabel(action, streetActions) {
-  const aggressiveActions = streetActions.filter((streetAction) =>
-    streetAction.type === "bet" || streetAction.type === "raise" || streetAction.type === "all-in",
-  );
-  const actionIndex = Math.max(0, aggressiveActions.findIndex((streetAction) => streetAction.id === action.id));
-  if (actionIndex === 0) {
-    return "bets";
-  }
-  if (actionIndex === 1) {
-    return "raises";
-  }
-  return `${actionIndex + 2}bets`;
 }
 
 function sumValues(record) {

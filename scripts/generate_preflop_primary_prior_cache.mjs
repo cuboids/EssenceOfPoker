@@ -8,7 +8,8 @@ import zlib from "node:zlib";
 import { cardCompare, fullDeck, sameCard } from "../dashboard/cards.mjs";
 import { preflopClassKeyForCards } from "../dashboard/cache_keys.mjs";
 import { createHandEvaluator } from "../dashboard/evaluation.mjs";
-import { legacyHandState, startPreflopModel } from "../dashboard/hand_state.mjs";
+import { startPreflopModel } from "../dashboard/hand_state.mjs";
+import { handViewFromModel } from "../dashboard/hand_view.mjs";
 import { computePreflopHeroAssetPriorKernel } from "../dashboard/preflop_asset_priors.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -67,7 +68,7 @@ console.log(`Wrote ${outputPath}.gz`);
 function computeClass(firstCard, secondCard) {
   const [h1, h2] = [firstCard, secondCard].sort(cardCompare);
   const [v1, v2] = fullDeck.filter((card) => !sameCard(card, h1) && !sameCard(card, h2)).slice(0, 2);
-  const handState = legacyHandState(startPreflopModel([h1, h2], [v1, v2]));
+  const handState = handViewFromModel(startPreflopModel([h1, h2], [v1, v2]));
   const remainingDeck = fullDeck.filter((card) => !sameCard(card, h1) && !sameCard(card, h2));
 
   return computePreflopHeroAssetPriorKernel({

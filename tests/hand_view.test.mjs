@@ -6,7 +6,6 @@ import {
   dealRiverModel,
   dealTurnModel,
   emptyHandModel,
-  legacyHandState,
   revealVillainModel,
   startPreflopModel,
 } from "../dashboard/hand_state.mjs";
@@ -27,7 +26,7 @@ test("hand view exposes the app read model without requiring the legacy bridge",
   assert.notEqual(view.suitMap, flop.suitMap);
   assert.deepEqual(
     comparableView(view),
-    comparableView(legacyHandState(flop)),
+    comparableView(handViewFromModel(flop)),
   );
 });
 

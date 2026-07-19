@@ -6,7 +6,8 @@ import fc from "fast-check";
 
 import { cardCompare, cardId, sameCard } from "../dashboard/cards.mjs";
 import { createHandEvaluator } from "../dashboard/evaluation.mjs";
-import { legacyHandState, startPreflopModel } from "../dashboard/hand_state.mjs";
+import { startPreflopModel } from "../dashboard/hand_state.mjs";
+import { handViewFromModel } from "../dashboard/hand_view.mjs";
 import { AGGREGATE_INDEX_GROUPS, aggregateGradationsForSevenCards } from "../dashboard/portfolio_curves.mjs";
 import {
   computePreflopHeroWinSharesBruteForce,
@@ -54,7 +55,7 @@ test("property: optimized preflop win shares match brute force on small determin
       const [rawH1, rawH2, rawV1, rawV2, ...deck] = ids.map(cardFromId);
       const [h1, h2] = [rawH1, rawH2].sort(cardCompare);
       const model = startPreflopModel([h1, h2], [rawV1, rawV2]);
-      const handState = legacyHandState(model);
+      const handState = handViewFromModel(model);
       const remainingDeck = deck.filter((sampleCard) => ![handState.h1, handState.h2].some((known) => sameCard(sampleCard, known)));
 
       const optimized = computePreflopHeroWinSharesKernel({

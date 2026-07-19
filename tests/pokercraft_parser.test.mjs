@@ -7,9 +7,9 @@ import {
   dealFlopModel,
   dealRiverModel,
   dealTurnModel,
-  legacyHandState,
   startPreflopModel,
 } from "../dashboard/hand_state.mjs";
+import { handViewFromModel } from "../dashboard/hand_view.mjs";
 import { normalizeImportedHandForApp } from "../dashboard/import_normalizer.mjs";
 import { validateActionSequence } from "../dashboard/player_actions.mjs";
 import { parsePokerCraftHandHistory } from "../dashboard/pokercraft_parser.mjs";
@@ -114,7 +114,7 @@ test("imported PokerCraft hand is equivalent to manual canonical app entry", () 
   model = dealRiverModel(model, imported.boardCards[4]);
 
   assert.equal(assertCanonicalHandModel(model), true);
-  const state = legacyHandState(model);
+  const state = handViewFromModel(model);
   assert.deepEqual([state.h1, state.h2].map(cardKey), imported.heroCards.map(cardKey));
   assert.deepEqual([...state.flop, state.turn, state.river].map(cardKey), imported.boardCards.map(cardKey));
   assert.equal(validateActionSequence(imported.playerActions, {

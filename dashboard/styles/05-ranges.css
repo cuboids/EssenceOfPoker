@@ -1,0 +1,120 @@
+.asset-grid {
+  display: grid;
+  gap: 24px;
+}
+
+.range-matrix-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.range-matrix-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.range-matrix-percent {
+  color: #e21f2f;
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 820;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.theme-dark .range-matrix-percent {
+  color: #ff5f68;
+}
+
+.range-matrix {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  border: 2px solid var(--text);
+  background: var(--text);
+  gap: 1px;
+  overflow: hidden;
+}
+
+.range-matrix-card .asset-header {
+  margin-bottom: 10px;
+}
+
+.range-matrix-card .asset-code {
+  background: #d83a3a;
+}
+
+.range-matrix-compact {
+  border-width: 1px;
+}
+
+.range-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  background: var(--panel);
+  font-size: 13px;
+  font-weight: 520;
+  font-variant-numeric: tabular-nums;
+}
+
+.range-matrix-compact .range-cell {
+  font-size: 8px;
+  font-weight: 660;
+}
+
+.range-matrix-large .range-cell {
+  font-size: 15px;
+}
+
+.range-cell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #ee202d;
+  opacity: calc(var(--range-frequency) * 0.92);
+}
+
+.range-cell.is-active {
+  color: var(--text);
+  font-weight: 790;
+}
+
+.range-cell span {
+  position: relative;
+  z-index: 1;
+}
+
+.theme-dark .range-cell::before {
+  background: #ff4d57;
+}
+
+.asset-loading {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
+  box-shadow: 0 4px 12px var(--card-shadow);
+}
+
+.asset-loading-title,
+.asset-loading-copy {
+  display: block;
+}
+
+.asset-loading-title {
+  font-size: 14px;
+  font-weight: 780;
+}
+
+.asset-loading-copy {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}

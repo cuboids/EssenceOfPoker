@@ -1,0 +1,79 @@
+.action-select {
+  height: 30px;
+  min-width: 110px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--page-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.action-sizing {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: min(100%, 420px);
+}
+
+.sizing-label {
+  min-width: 46px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 860;
+  text-transform: capitalize;
+}
+
+.sizing-slider {
+  flex: 1 1 180px;
+  min-width: 140px;
+  accent-color: var(--accent);
+}
+
+.sizing-output {
+  min-width: 44px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 860;
+  text-align: right;
+}
+
+.action-button {
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--page-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 780;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+.action-add-button {
+  border-color: rgba(41, 168, 111, 0.34);
+  background: rgba(41, 168, 111, 0.13);
+  color: #1f8e5d;
+}
+
+.raise-input {
+  width: 60px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 740;
+  text-align: right;
+}
+
+.raise-unit,
+.action-empty {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}

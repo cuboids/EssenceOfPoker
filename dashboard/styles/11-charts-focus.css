@@ -1,0 +1,234 @@
+.asset-pending {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 78px;
+  margin-top: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: var(--page-soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+  text-align: center;
+}
+
+.asset-pending-large {
+  min-height: 360px;
+  margin-top: 0;
+  padding: 24px;
+}
+
+.axis {
+  stroke: var(--axis-color);
+  stroke-width: 1;
+}
+
+.curve {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.ceiling-tail {
+  fill: var(--ceiling-tail);
+  pointer-events: none;
+}
+
+.ceiling-line {
+  stroke: var(--ceiling-line);
+  stroke-width: 1.7;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.focus-svg .ceiling-line {
+  stroke-width: 2.1;
+}
+
+.ceiling-label {
+  fill: var(--ceiling-line);
+  font-size: 10px;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.focus-svg .ceiling-label {
+  font-size: 13px;
+  stroke-width: 4px;
+}
+
+.area {
+  fill: rgba(20, 107, 95, 0.04);
+}
+
+.locked-svg-bg {
+  fill: color-mix(in srgb, var(--locked-color) 82%, var(--panel));
+  stroke: color-mix(in srgb, var(--locked-color) 64%, var(--line));
+  stroke-width: 1;
+}
+
+.locked-svg-grade {
+  fill: #ffffff;
+  font-size: 20px;
+  font-weight: 860;
+}
+
+.focus-svg .locked-svg-grade {
+  font-size: 88px;
+}
+
+.locked-panel {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--locked-color) 82%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--locked-color) 64%, var(--line));
+  text-align: center;
+}
+
+.locked-grade {
+  color: #ffffff;
+  font-size: clamp(52px, 10vw, 112px);
+  line-height: 0.95;
+  font-weight: 860;
+}
+
+.band {
+  fill: var(--band-color);
+  opacity: var(--band-opacity, 0.32);
+}
+
+.grid-line {
+  stroke: var(--grid-color);
+  stroke-width: 1;
+}
+
+.grid-label {
+  fill: var(--muted);
+  font-size: 13px;
+}
+
+.category-marker {
+  stroke: var(--marker-color);
+  stroke-width: 1;
+}
+
+.spark-labels {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.focus-layer[hidden] {
+  display: none;
+}
+
+.focus-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.focus-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--focus-backdrop);
+  backdrop-filter: blur(4px);
+}
+
+.focus-panel {
+  position: relative;
+  width: min(1180px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--modal-border);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  padding: 20px;
+}
+
+.focus-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+  padding-right: 46px;
+}
+
+.focus-code {
+  display: inline-flex;
+  color: #ffffff;
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.focus-header h2 {
+  margin-top: 8px;
+  font-size: 30px;
+}
+
+.focus-subtitle {
+  margin-top: 6px;
+}
+
+.focus-state {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--badge-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.focus-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--page-soft);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.focus-close:hover,
+.focus-close:focus-visible {
+  color: var(--ink);
+  border-color: var(--accent);
+  outline: none;
+}
+
+.focus-chart {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--chart-bg);
+  padding: 12px;
+}
+
+.focus-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}

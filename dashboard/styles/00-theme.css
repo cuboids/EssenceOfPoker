@@ -1,0 +1,82 @@
+:root {
+  color-scheme: light;
+  --ink: #17201b;
+  --muted: #637067;
+  --line: #d9dfd9;
+  --panel: #ffffff;
+  --page: #eef3ef;
+  --page-soft: #f8faf7;
+  --accent: #146b5f;
+  --accent-soft: #d8ede8;
+  --gold: #b8860b;
+  --surface-glass: rgba(255, 255, 255, 0.72);
+  --control-glass: rgba(255, 255, 255, 0.62);
+  --soft-border: rgba(23, 32, 27, 0.08);
+  --button-border: rgba(20, 107, 95, 0.45);
+  --deal-hover: #0f5d53;
+  --switch-off: #cfd8d2;
+  --switch-border: rgba(23, 32, 27, 0.12);
+  --switch-thumb: #ffffff;
+  --switch-shadow: rgba(23, 32, 27, 0.25);
+  --card-shadow: rgba(23, 32, 27, 0.04);
+  --card-shadow-hover: rgba(23, 32, 27, 0.11);
+  --axis-color: #c8d0c8;
+  --grid-color: rgba(23, 32, 27, 0.13);
+  --marker-color: rgba(23, 32, 27, 0.12);
+  --ceiling-line: #6b756d;
+  --ceiling-tail: rgba(248, 250, 247, 0.76);
+  --chart-bg: #fbfcfa;
+  --focus-backdrop: rgba(12, 18, 15, 0.52);
+  --badge-border: #b7d5ce;
+  --modal-border: rgba(255, 255, 255, 0.5);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body.theme-dark {
+  color-scheme: dark;
+  --ink: #edf4ee;
+  --muted: #a7b5aa;
+  --line: #34433b;
+  --panel: #18221d;
+  --page: #0f1512;
+  --page-soft: #202b25;
+  --accent: #55d0b5;
+  --accent-soft: #173c35;
+  --gold: #e0b44b;
+  --surface-glass: rgba(29, 40, 34, 0.82);
+  --control-glass: rgba(25, 36, 30, 0.82);
+  --soft-border: rgba(236, 244, 238, 0.1);
+  --button-border: rgba(85, 208, 181, 0.48);
+  --deal-hover: #44bda4;
+  --switch-off: #3d4b43;
+  --switch-border: rgba(236, 244, 238, 0.16);
+  --switch-thumb: #f4fbf6;
+  --switch-shadow: rgba(0, 0, 0, 0.45);
+  --card-shadow: rgba(0, 0, 0, 0.18);
+  --card-shadow-hover: rgba(0, 0, 0, 0.34);
+  --axis-color: #506058;
+  --grid-color: rgba(237, 244, 238, 0.15);
+  --marker-color: rgba(237, 244, 238, 0.16);
+  --ceiling-line: #aab6ad;
+  --ceiling-tail: rgba(15, 21, 18, 0.72);
+  --chart-bg: #121a16;
+  --focus-backdrop: rgba(3, 7, 5, 0.72);
+  --badge-border: #26665b;
+  --modal-border: rgba(237, 244, 238, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    linear-gradient(180deg, rgba(20, 107, 95, 0.08), transparent 280px),
+    var(--page);
+  color: var(--ink);
+}
+
+body.has-focus-layer {
+  overflow: hidden;
+}

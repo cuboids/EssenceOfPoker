@@ -1,0 +1,195 @@
+.shell {
+  width: min(1480px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 24px 0 40px;
+}
+
+.topbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px;
+  background: var(--surface-glass);
+  border: 1px solid var(--soft-border);
+  border-bottom: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 10px 24px var(--card-shadow);
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(96px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.metrics div {
+  border: 1px solid var(--line);
+  background: var(--page-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.hand-controls,
+.view-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--control-glass);
+  border: 1px solid var(--soft-border);
+  border-radius: 8px;
+}
+
+.view-controls {
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.view-controls > .theme-toggle {
+  margin-left: auto;
+}
+
+.control-button {
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+  min-height: 38px;
+  padding: 0 16px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.deal-button {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.reset-button {
+  background: var(--panel);
+  color: var(--accent);
+}
+
+.street-nav-button {
+  width: 38px;
+  padding: 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.interesting-hand-button {
+  width: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--accent);
+}
+
+.dice-icon {
+  width: 20px;
+  height: 20px;
+  border: 2px solid currentColor;
+  border-radius: 5px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: 2px;
+  box-sizing: border-box;
+}
+
+.dice-icon span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  align-self: center;
+  justify-self: center;
+}
+
+.dice-icon span:nth-child(1) {
+  grid-area: 1 / 1;
+}
+
+.dice-icon span:nth-child(2) {
+  grid-area: 1 / 3;
+}
+
+.dice-icon span:nth-child(3) {
+  grid-area: 2 / 2;
+}
+
+.dice-icon span:nth-child(4) {
+  grid-area: 3 / 1;
+}
+
+.dice-icon span:nth-child(5) {
+  grid-area: 3 / 3;
+}
+
+.interesting-hand-button.is-loading .dice-icon {
+  animation: dice-spin 700ms linear infinite;
+}
+
+@keyframes dice-spin {
+  to {
+    transform: rotate(180deg);
+  }
+}
+
+.deal-button:hover,
+.deal-button:focus-visible {
+  background: var(--deal-hover);
+  outline: none;
+}
+
+.street-nav-button:hover,
+.street-nav-button:focus-visible,
+.interesting-hand-button:hover,
+.interesting-hand-button:focus-visible,
+.reset-button:hover,
+.reset-button:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+.control-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}

@@ -1,0 +1,100 @@
+.config-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
+  box-shadow: 0 4px 12px var(--card-shadow);
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 58px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.config-row-stack {
+  align-items: flex-start;
+  flex-direction: column;
+  cursor: default;
+}
+
+.config-segmented {
+  display: inline-grid;
+  grid-template-columns: repeat(6, minmax(42px, auto));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--page-soft);
+}
+
+.config-segmented label {
+  min-height: 32px;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.config-segmented label.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.config-segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.config-segmented span {
+  display: inline-grid;
+  place-items: center;
+  min-height: 30px;
+  min-width: 38px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.config-segmented input:checked + span {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.config-villain-status input:checked + span {
+  background: color-mix(in srgb, #c93d3d 14%, var(--panel));
+  color: #b73535;
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.theme-dark .config-villain-status input:checked + span {
+  color: #ff8b8b;
+}
+
+.config-title,
+.config-copy {
+  display: block;
+}
+
+.config-title {
+  font-size: 14px;
+  font-weight: 780;
+}
+
+.config-copy {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.config-toggle {
+  flex: 0 0 auto;
+}

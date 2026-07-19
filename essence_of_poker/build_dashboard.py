@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +14,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SOURCE_ROOT = PROJECT_ROOT / "dashboard"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "dist" / "dashboard"
+CSS_IMPORT_RE = re.compile(
+    r"""@import\s+(?:url\()?["'](?P<path>[^"')]+)["']\)?\s*;""",
+)
 
 
 def build_dashboard(
@@ -29,6 +33,7 @@ def build_dashboard(
     if output_root.exists():
         shutil.rmtree(output_root)
     shutil.copytree(source_root, output_root, ignore=shutil.ignore_patterns("__pycache__", ".DS_Store"))
+    _bundle_css_imports(output_root / "styles.css")
 
     version = _manifest_version(_asset_hashes(output_root, include_index=False))
     assets = _asset_hashes(output_root, include_index=False)
@@ -67,6 +72,38 @@ def _content_hash(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()[:12]
+
+
+def _bundle_css_imports(entry_path: Path) -> None:
+    """Inline local CSS imports so production serves one hashed stylesheet."""
+
+    entry_path.write_text(_bundled_css(entry_path, entry_path.parent, []), encoding="utf-8")
+
+
+def _bundled_css(path: Path, root: Path, import_stack: list[Path]) -> str:
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    if resolved_path in import_stack:
+        cycle = " -> ".join(item.name for item in [*import_stack, resolved_path])
+        raise ValueError(f"CSS import cycle detected: {cycle}")
+    if not resolved_path.is_relative_to(resolved_root):
+        raise ValueError(f"CSS import escapes dashboard root: {path}")
+
+    import_stack.append(resolved_path)
+    chunks = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = CSS_IMPORT_RE.fullmatch(line.strip())
+        if not match:
+            chunks.append(line)
+            continue
+        import_path = (path.parent / match.group("path")).resolve()
+        if not import_path.exists():
+            raise FileNotFoundError(f"CSS import not found: {import_path}")
+        relative_path = import_path.relative_to(resolved_root).as_posix()
+        chunks.append(f"/* {relative_path} */")
+        chunks.append(_bundled_css(import_path, root, import_stack).rstrip())
+    import_stack.pop()
+    return "\n".join(chunks).rstrip() + "\n"
 
 
 def _manifest_version(assets: dict[str, str]) -> str:

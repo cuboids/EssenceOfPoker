@@ -1,0 +1,124 @@
+.toggle-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+  cursor: pointer;
+  user-select: none;
+}
+
+.view-mode-control {
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(0, auto));
+  gap: 2px;
+  margin-left: 0;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.view-mode-control label {
+  min-height: 30px;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.view-mode-control input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.view-mode-control span {
+  display: inline-grid;
+  place-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.view-mode-control input:checked + span {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.view-mode-control label:focus-within span {
+  outline: 2px solid rgba(20, 107, 95, 0.28);
+  outline-offset: 2px;
+}
+
+.settings-page-button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.settings-page-button:hover,
+.settings-page-button:focus-visible {
+  border-color: var(--button-border);
+  color: var(--ink);
+  outline: none;
+}
+
+.settings-page-button.is-active {
+  border-color: var(--button-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.toggle-control input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--switch-off);
+  border: 1px solid var(--switch-border);
+  transition: background 140ms ease;
+}
+
+.toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--switch-thumb);
+  box-shadow: 0 1px 3px var(--switch-shadow);
+  transition: transform 140ms ease;
+}
+
+.toggle-control input:checked + .toggle-track {
+  background: var(--accent);
+}
+
+.toggle-control input:checked + .toggle-track::after {
+  transform: translateX(16px);
+}
+
+.toggle-control:focus-within .toggle-track {
+  outline: 2px solid rgba(20, 107, 95, 0.28);
+  outline-offset: 2px;
+}

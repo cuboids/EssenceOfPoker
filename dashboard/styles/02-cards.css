@@ -1,0 +1,91 @@
+.holding-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.holding-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.holding-card {
+  min-width: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 6px 9px;
+  text-align: center;
+  font-weight: 800;
+}
+
+.editable-card {
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.editable-card .asset-token {
+  color: var(--muted);
+  font-weight: 760;
+}
+
+.editable-card:hover,
+.editable-card:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.card-editor {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.card-editor-select,
+.card-editor-action {
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--page-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.card-editor-select {
+  padding: 0 4px;
+}
+
+.card-editor-select[data-card-editor-suit] {
+  min-width: 36px;
+  font-size: 15px;
+}
+
+.card-editor-action {
+  min-width: 28px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.card-editor-action:hover,
+.card-editor-action:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.card-edit-error {
+  color: #c93333;
+  font-size: 12px;
+  font-weight: 720;
+}

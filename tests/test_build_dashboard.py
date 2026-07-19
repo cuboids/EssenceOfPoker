@@ -27,12 +27,15 @@ class BuildDashboardTests(unittest.TestCase):
 
             index_html = (output / "index.html").read_text(encoding="utf-8")
             app_js = (output / "app.js").read_text(encoding="utf-8")
+            styles_css = (output / "styles.css").read_text(encoding="utf-8")
             self.assertIn(f'window.ESSENCE_ASSET_VERSION = "{build_info["version"]}"', index_html)
             self.assertIn(f'app.js?v={manifest["assets"]["app.js"]}-{build_info["version"]}', index_html)
             self.assertIn(f'styles.css?v={manifest["assets"]["styles.css"]}-{build_info["version"]}', index_html)
             self.assertIn('from "./cards.mjs"', app_js)
             self.assertNotIn(f'?v={build_info["version"]}', app_js)
             self.assertNotIn("frontend-modules-2", index_html)
+            self.assertNotIn("@import", styles_css)
+            self.assertIn(".asset-card", styles_css)
 
 
 if __name__ == "__main__":

@@ -11,9 +11,25 @@
     "skipLibCheck": true
   },
   "include": [
+    "dashboard/aggregate_equity.mjs",
+    "dashboard/asset_status.mjs",
+    "dashboard/cache_keys.mjs",
+    "dashboard/cache_payload_contracts.mjs",
+    "dashboard/cards.mjs",
+    "dashboard/charts.mjs",
+    "dashboard/evaluation.mjs",
     "dashboard/local_storage_schema.mjs",
+    "dashboard/portfolio_curves.mjs",
+    "dashboard/range_features.mjs",
+    "dashboard/range_matrix.mjs",
     "dashboard/range_model_metadata.mjs",
+    "dashboard/range_universe.mjs",
+    "dashboard/renderers/config_renderer.mjs",
+    "dashboard/renderers/holding_renderer.mjs",
+    "dashboard/renderers/range_matrix_renderer.mjs",
     "dashboard/session_rng.mjs",
+    "dashboard/table_positions.mjs",
+    "dashboard/ui.mjs",
     "dashboard/version_registry.mjs"
   ]
 }

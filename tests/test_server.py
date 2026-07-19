@@ -5,6 +5,14 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+from essence_of_poker.api_routes import (
+    API_CACHE,
+    API_HEALTH,
+    API_NOT_FOUND,
+    API_PREFLOP_CLASS_DATA,
+    match_api_route,
+    preflop_class_data_path,
+)
 from essence_of_poker.cache import MemoryCache
 from essence_of_poker.server import (
     cache_write_is_authorized,
@@ -26,6 +34,20 @@ class ServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.dict("os.environ", {"ESSENCE_DASHBOARD_ROOT": temp_dir}):
                 self.assertEqual(dashboard_root_from_environment(), Path(temp_dir).resolve())
+
+    def test_api_route_table_is_shared_by_http_and_wsgi_adapters(self) -> None:
+        self.assertEqual(match_api_route("GET", "/api/health").name, API_HEALTH)
+        self.assertEqual(match_api_route("PUT", "/api/cache/example").name, API_CACHE)
+        self.assertEqual(match_api_route("GET", "/api/nope").name, API_NOT_FOUND)
+        route = match_api_route("GET", "/api/data/preflop-primary/1-1-pair")
+
+        self.assertEqual(route.name, API_PREFLOP_CLASS_DATA)
+        self.assertEqual(route.class_key, "1-1-pair")
+        self.assertEqual(route.data_family, "primary")
+        self.assertEqual(
+            preflop_class_data_path(Path("/repo"), route.data_family, route.class_key),
+            Path("/repo/essence_of_poker/data/preflop_primary_classes/1-1-pair.json.gz"),
+        )
 
     def test_health_payload_reports_cache_and_build_status(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

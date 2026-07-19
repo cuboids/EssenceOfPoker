@@ -10,6 +10,17 @@ from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import parse_qs, unquote
 
+from essence_of_poker.api_routes import (
+    API_CACHE,
+    API_EMPIRICAL_SPOT,
+    API_HEALTH,
+    API_INTERESTING_HAND,
+    API_NOT_FOUND,
+    API_OPTIONS,
+    API_PREFLOP_CLASS_DATA,
+    match_api_route,
+    preflop_class_data_path,
+)
 from essence_of_poker.cache import CacheBackend, cache_from_environment
 from essence_of_poker.calibration.empirical_runtime import empirical_spot_payload_cached
 from essence_of_poker.server import (
@@ -40,39 +51,27 @@ class EssencePokerWsgiApp:
         return [response.body]
 
     def route(self, request: "WsgiRequest") -> "WsgiResponse":
-        if request.method == "OPTIONS":
+        route = match_api_route(request.method, request.path)
+        if route is None:
+            return self.static_file(request)
+        if route.name == API_OPTIONS:
             return WsgiResponse(HTTPStatus.NO_CONTENT, b"", cors_headers())
-        if request.path == "/api/health" and request.method == "GET":
+        if route.name == API_HEALTH:
             return json_response(health_payload(self.cache, self.dashboard_root))
-        if request.path.startswith("/api/calibration/empirical-spot") and request.method == "GET":
+        if route.name == API_EMPIRICAL_SPOT:
             return self.empirical_spot(request)
-        if request.path.startswith("/api/interesting-hands/random") and request.method == "GET":
+        if route.name == API_INTERESTING_HAND:
             return self.random_interesting_hand()
-        if request.path.startswith("/api/data/preflop-hidden-villain/") and request.method == "GET":
-            class_key = unquote(request.path.removeprefix("/api/data/preflop-hidden-villain/"))
+        if route.name == API_PREFLOP_CLASS_DATA:
             return self.gzipped_class_payload(
-                class_key,
-                PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_hidden_villain_classes" / f"{class_key}.json.gz",
+                route.class_key,
+                preflop_class_data_path(PROJECT_ROOT, route.data_family, route.class_key),
             )
-        if request.path.startswith("/api/data/preflop-aggregate/") and request.method == "GET":
-            class_key = unquote(request.path.removeprefix("/api/data/preflop-aggregate/"))
-            return self.gzipped_class_payload(
-                class_key,
-                PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_aggregate_classes" / f"{class_key}.json.gz",
-            )
-        if request.path.startswith("/api/data/preflop-primary/") and request.method == "GET":
-            class_key = unquote(request.path.removeprefix("/api/data/preflop-primary/"))
-            return self.gzipped_class_payload(
-                class_key,
-                PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_primary_classes" / f"{class_key}.json.gz",
-            )
-        if request.path.startswith("/api/cache/") and request.method == "GET":
-            return self.cache_get(request)
-        if request.path.startswith("/api/cache/") and request.method == "PUT":
-            return self.cache_put(request)
-        if request.path.startswith("/api/"):
+        if route.name == API_CACHE:
+            return self.cache_get(request) if route.method == "GET" else self.cache_put(request)
+        if route.name == API_NOT_FOUND:
             return json_response({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
-        return self.static_file(request)
+        return json_response({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def cache_get(self, request: "WsgiRequest") -> "WsgiResponse":
         value = self.cache.get(cache_key_from_path(request.path))

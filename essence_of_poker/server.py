@@ -13,6 +13,16 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from essence_of_poker.api_routes import (
+    API_CACHE,
+    API_EMPIRICAL_SPOT,
+    API_HEALTH,
+    API_INTERESTING_HAND,
+    API_NOT_FOUND,
+    API_PREFLOP_CLASS_DATA,
+    match_api_route,
+    preflop_class_data_path,
+)
 from essence_of_poker.cache import CacheBackend, cache_from_environment
 from essence_of_poker.calibration.empirical_runtime import empirical_spot_cache_status, empirical_spot_payload_cached
 from essence_of_poker.version_registry import VERSION_REGISTRY
@@ -34,34 +44,36 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(self.dashboard_root), **kwargs)
 
     def do_GET(self) -> None:
-        if self.path == "/api/health":
+        route = match_api_route("GET", urlparse(self.path).path)
+        if route is None:
+            super().do_GET()
+            return
+        if route.name == API_HEALTH:
             self._json_response(health_payload(self.cache, self.dashboard_root))
             return
-        if self.path.startswith("/api/calibration/empirical-spot"):
+        if route.name == API_EMPIRICAL_SPOT:
             self._handle_empirical_spot()
             return
-        if self.path.startswith("/api/interesting-hands/random"):
+        if route.name == API_INTERESTING_HAND:
             self._handle_random_interesting_hand()
             return
-        if self.path.startswith("/api/data/preflop-hidden-villain/"):
-            self._handle_preflop_hidden_villain_data()
+        if route.name == API_PREFLOP_CLASS_DATA:
+            self._handle_preflop_class_data(route)
             return
-        if self.path.startswith("/api/data/preflop-aggregate/"):
-            self._handle_preflop_aggregate_data()
-            return
-        if self.path.startswith("/api/data/preflop-primary/"):
-            self._handle_preflop_primary_data()
-            return
-        if self.path.startswith("/api/cache/"):
+        if route.name == API_CACHE:
             self._handle_cache_get()
+            return
+        if route.name == API_NOT_FOUND:
+            self._json_response({"ok": False, "error": "not found"}, status=HTTPStatus.NOT_FOUND)
             return
         super().do_GET()
 
     def do_PUT(self) -> None:
-        if self.path.startswith("/api/cache/"):
+        route = match_api_route("PUT", urlparse(self.path).path)
+        if route and route.name == API_CACHE:
             self._handle_cache_put()
             return
-        self.send_error(HTTPStatus.NOT_FOUND)
+        self._json_response({"ok": False, "error": "not found"}, status=HTTPStatus.NOT_FOUND)
 
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
@@ -111,20 +123,11 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         digest = hashlib.sha256(payload).hexdigest()[:16]
         self._json_response({"ok": True, "cache": self.cache.name, "sha256": digest})
 
-    def _handle_preflop_hidden_villain_data(self) -> None:
-        class_key = unquote(self.path.removeprefix("/api/data/preflop-hidden-villain/"))
-        data_path = PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_hidden_villain_classes" / f"{class_key}.json.gz"
-        self._serve_gzipped_class_payload(class_key, data_path)
-
-    def _handle_preflop_aggregate_data(self) -> None:
-        class_key = unquote(self.path.removeprefix("/api/data/preflop-aggregate/"))
-        data_path = PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_aggregate_classes" / f"{class_key}.json.gz"
-        self._serve_gzipped_class_payload(class_key, data_path)
-
-    def _handle_preflop_primary_data(self) -> None:
-        class_key = unquote(self.path.removeprefix("/api/data/preflop-primary/"))
-        data_path = PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_primary_classes" / f"{class_key}.json.gz"
-        self._serve_gzipped_class_payload(class_key, data_path)
+    def _handle_preflop_class_data(self, route) -> None:
+        self._serve_gzipped_class_payload(
+            route.class_key,
+            preflop_class_data_path(PROJECT_ROOT, route.data_family, route.class_key),
+        )
 
     def _handle_empirical_spot(self) -> None:
         parsed = urlparse(self.path)

@@ -8,6 +8,14 @@ import {
 } from "./street_snapshots.mjs";
 import * as HandModel from "./hand_state.mjs";
 
+/**
+ * @typedef {{streetIndex: number, actionCount: number}} ActionMoment
+ * @typedef {{handModel?: object | null, currentCurves?: object, currentWinShares?: object, playerActions?: object[], showdownHoleCardsByPlayer?: object}} StreetSnapshot
+ * @typedef {{currentCurves?: object, currentWinShares?: object}} ActionMomentCacheEntry
+ * @typedef {{handModel?: object | null, handTimeline?: StreetSnapshot[], viewedStreetIndex?: number, viewedActionCount?: number | null, playerActions?: object[], currentCurves?: object, currentWinShares?: object, showdownHoleCardsByPlayer?: object}} VisibleSnapshotOptions
+ * @typedef {{handTimeline?: StreetSnapshot[], moment: ActionMoment, playerActions?: object[], actionMomentCache?: Map<string, ActionMomentCacheEntry>, fallbackCurves?: object, fallbackWinShares?: object}} VisibleMomentOptions
+ */
+
 export function actionStreetForHandModel(model) {
   return model?.phase === HandModel.HAND_PHASES.SHOWDOWN ? HandModel.HAND_PHASES.RIVER : model?.phase;
 }
@@ -66,6 +74,9 @@ export function visibleActionsForStreet({ handState, viewedActionCount, playerAc
   return actionsVisibleThroughStreet(actionPrefix, street);
 }
 
+/**
+ * @param {VisibleSnapshotOptions} [options]
+ */
 export function resolveVisibleHandSnapshot({
   handModel,
   handTimeline = [],
@@ -108,6 +119,9 @@ export function resolveVisibleHandSnapshot({
   };
 }
 
+/**
+ * @param {VisibleMomentOptions} options
+ */
 export function visibleHandSnapshotForMoment({
   handTimeline = [],
   moment,

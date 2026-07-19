@@ -4,6 +4,15 @@ export const FORCED_ACTION_TYPES = Object.freeze(["small-blind", "big-blind"]);
 export const DEFAULT_SMALL_BLIND = 0.5;
 export const DEFAULT_BIG_BLIND = 1;
 
+/**
+ * @typedef {{id?: string, player: string, street: string, type: string, amount?: number, forced?: boolean}} PlayerAction
+ * @typedef {{[player: string]: number}} StackMap
+ * @typedef {{smallBlindPlayer?: string | null, bigBlindPlayer?: string | null, smallBlind?: number, bigBlind?: number}} BlindConfig
+ * @typedef {{orderForStreet?: (street: string) => string[], stacks?: StackMap, smallBlindPlayer?: string | null, bigBlindPlayer?: string | null, smallBlind?: number, bigBlind?: number}} ActionLegalityContext
+ * @typedef {{actions: PlayerAction[], street: string, order: string[], stacks: StackMap, smallBlindPlayer?: string | null, bigBlindPlayer?: string | null, smallBlind?: number, bigBlind?: number}} BettingStateOptions
+ * @typedef {{order: string[], actions: PlayerAction[], street: string, foldedBeforeStreet?: (player: string) => boolean, canAct?: (player: string) => boolean, smallBlind?: number, bigBlind?: number}} ActionOrderOptions
+ */
+
 const STREET_INDEX = Object.freeze({
   preflop: 0,
   flop: 1,
@@ -19,6 +28,7 @@ export function normalizePlayerAction(action) {
   const street = assertOneOf(action.street, ACTION_STREETS, "street");
   const type = assertOneOf(action.type, ACTION_TYPES, "action type");
   const id = typeof action.id === "string" && action.id ? action.id : null;
+  /** @type {PlayerAction} */
   const normalized = { ...(id ? { id } : {}), player, street, type };
   if (["bet", "raise", "call", "all-in"].includes(type) && action.amount != null) {
     normalized.amount = normalizeAmount(action.amount);
@@ -78,6 +88,9 @@ export function actionsForStreet(actions, street) {
   return actions.filter((action) => action.street === street);
 }
 
+/**
+ * @param {BlindConfig} [options]
+ */
 export function forcedBlindActionTags({
   smallBlindPlayer,
   bigBlindPlayer,
@@ -112,6 +125,9 @@ export function actionsVisibleThroughStreet(actions, street) {
   return actions.filter((action) => STREET_INDEX[action.street] <= targetIndex);
 }
 
+/**
+ * @param {ActionOrderOptions} options
+ */
 export function nextActionPlayer({
   order,
   actions,
@@ -151,6 +167,9 @@ export function nextActionPlayer({
   return nextIndex >= 0 ? activeOrder[nextIndex] : null;
 }
 
+/**
+ * @param {ActionOrderOptions} options
+ */
 export function bettingRoundIsClosed({
   order,
   actions,
@@ -216,6 +235,9 @@ export function livePlayersThroughStreet({ order, actions, street }) {
   return order.filter((player) => !playerHasFoldedByStreet(actions, player, street));
 }
 
+/**
+ * @param {BettingStateOptions} options
+ */
 export function actionablePlayersForStreet({
   order,
   actions,
@@ -242,6 +264,9 @@ export function actionablePlayersForStreet({
   );
 }
 
+/**
+ * @param {BettingStateOptions & {player: string}} options
+ */
 export function playerIsAllInByStreet({
   order,
   actions,
@@ -292,6 +317,9 @@ export function actionTagLabel(action, streetActions = []) {
   return action.type;
 }
 
+/**
+ * @param {BettingStateOptions} options
+ */
 export function bettingStateForStreet({
   actions,
   street,
@@ -431,6 +459,10 @@ export function legalActionPlan({ player, street, state, bigBlind = DEFAULT_BIG_
   };
 }
 
+/**
+ * @param {PlayerAction[]} actions
+ * @param {ActionLegalityContext} [context]
+ */
 export function actionLegalityError(actions, {
   orderForStreet,
   stacks,

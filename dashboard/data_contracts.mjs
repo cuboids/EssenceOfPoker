@@ -1,4 +1,5 @@
 import { PROBABILITY_SPACES, assertProbabilitySpace } from "./probability_spaces.mjs";
+import { generatedDataVersion, VERSION_REGISTRY } from "./version_registry.mjs";
 
 const REQUIRED_PORTFOLIOS = Object.freeze(["hero", "villain"]);
 const REQUIRED_AGGREGATES = Object.freeze(["AGG", "AGG_BOTH", "AGG_H1", "AGG_H2", "AGG_ZERO"]);
@@ -193,6 +194,23 @@ export function validatePreflopHandEquityCache(cache) {
     assertProbability(equity, `${classKey} equity`);
   }
   return cache;
+}
+
+export function validateEmpiricalSpotPayload(payload) {
+  assertObject(payload, "empirical spot payload");
+  if (payload.ok !== true) {
+    throw new Error(payload.error || "empirical spot payload is unavailable");
+  }
+  if (payload.cache?.contractVersion && payload.cache.contractVersion !== generatedDataVersion("empiricalSpotCache")) {
+    throw new Error(`empirical spot cache contract ${payload.cache.contractVersion} is incompatible`);
+  }
+  if (payload.cache?.modelVersion && payload.cache.modelVersion !== VERSION_REGISTRY.models.rangeEngine) {
+    throw new Error(`empirical spot model ${payload.cache.modelVersion} is incompatible`);
+  }
+  assertObject(payload.request, "empirical spot request");
+  assertObject(payload.handClasses, "empirical spot hand classes");
+  assertObject(payload.spotProbabilities, "empirical spot probabilities");
+  return payload;
 }
 
 function validatePortfolio(portfolio, page) {

@@ -22,6 +22,7 @@ import {
 } from "./win_shares.mjs";
 
 export function createEquityController(deps) {
+  const cardState = deps.cardState || deps;
   function resetWinShareState() {
     deps.setCurrentWinShares(deps.handState() ? {} : deps.priorWinSharesByPage());
     deps.asyncJobs.cancelByPrefix("equity:");
@@ -30,7 +31,8 @@ export function createEquityController(deps) {
   function ensureCurrentPageWinShares() {
     const handState = deps.handState();
     const activePage = deps.activePage();
-    const jobKey = `equity:win-shares:${activePage}`;
+    const guard = deps.createCurrentAsyncGuard({ purpose: "page-win-shares", page: activePage });
+    const jobKey = `equity:win-shares:${activePage}:${hashString(guard.key)}`;
     if (!handState || activePage === "config" || deps.currentWinShares()[activePage] || deps.asyncJobs.isScheduled(jobKey)) {
       return;
     }
@@ -38,7 +40,6 @@ export function createEquityController(deps) {
       return;
     }
 
-    const guard = deps.createCurrentAsyncGuard({ purpose: "page-win-shares", page: activePage });
     const page = activePage;
     deps.asyncJobs.schedule({
       key: jobKey,
@@ -71,7 +72,8 @@ export function createEquityController(deps) {
   }
 
   function ensureAggregateEquities() {
-    const jobKey = "equity:aggregate";
+    const guard = deps.createCurrentAsyncGuard({ purpose: "aggregate-equities", page: deps.activePage() });
+    const jobKey = aggregateEquityJobKey(guard);
     if (deps.activePage() === "config" || aggregateEquitiesAreReady() || deps.asyncJobs.isScheduled(jobKey)) {
       return;
     }
@@ -80,7 +82,6 @@ export function createEquityController(deps) {
       return;
     }
 
-    const guard = deps.createCurrentAsyncGuard({ purpose: "aggregate-equities", page: deps.activePage() });
     deps.asyncJobs.schedule({
       key: jobKey,
       delayMs: 250,
@@ -102,6 +103,10 @@ export function createEquityController(deps) {
         }
       },
     });
+  }
+
+  function aggregateEquityJobKey(guard) {
+    return `equity:aggregate:${hashString(guard.key)}`;
   }
 
   function aggregateEquitiesAreReady() {
@@ -199,7 +204,7 @@ export function createEquityController(deps) {
         : cached.value;
     }
     const result = await computeMultiwayEquityAsync(payload);
-    void writeApiCacheResult(
+    observeCacheWrite(writeApiCacheResult(
       cacheKey,
       usesCanonicalCache
         ? compactPreflopAggregateEquity(result, payload)
@@ -210,7 +215,7 @@ export function createEquityController(deps) {
           ? validateCompactPreflopMultiwayEquityCachePayload(candidate, { playerCount: payload.participants.length })
           : validateMultiwayEquityCachePayload(candidate, { expectedParticipants: payload.participants.length }),
       },
-    );
+    ), { cacheKey, family: "aggregate-equity" });
     return result;
   }
 
@@ -301,7 +306,7 @@ export function createEquityController(deps) {
   }
 
   function multiwayEquityPayload(matchup) {
-    const knownBoard = deps.currentBoardCards();
+    const knownBoard = cardState.currentBoardCards();
     const handState = deps.handState();
     const knownHeroCards = handState?.h1 && handState?.h2 ? [handState.h1, handState.h2] : [];
     const inferredRanges = inferredRangesForEquity(matchup, knownHeroCards, knownBoard);
@@ -315,7 +320,7 @@ export function createEquityController(deps) {
         ...deps.activeVillainPageKeys().map((page) => rangeParticipant(page, inferredRanges[page])),
       ];
     const knownUnavailableCards = matchup === "range"
-      ? deps.knownCardsForHand()
+      ? cardState.knownCardsForHand()
       : [...knownHeroCards, ...knownBoard];
     const deck = removeKnownCards(fullDeck, knownUnavailableCards);
     return {
@@ -393,16 +398,38 @@ export function createEquityController(deps) {
     }
 
     const result = await computeWinSharesForPageAsync(page);
-    void writeApiCacheResult(cacheKey, result, {
+    observeCacheWrite(writeApiCacheResult(cacheKey, result, {
       shouldWrite: () => !guard || guard.isCurrent(),
       validator: (payload) => validateWinShareCachePayload(payload, { expectedShareCount: 21 }),
-    });
+    }), { cacheKey, family: "win-shares" });
     return result;
+  }
+
+  function observeCacheWrite(writePromise, { cacheKey, family }) {
+    void writePromise.then((result) => {
+      if (!result.ok && result.reason !== "cancelled") {
+        deps.recordCacheWriteFailure?.({
+          type: `cache-write:${family}`,
+          message: `Cache write failed for ${family}: ${result.error || result.reason || "unknown error"}`,
+          cacheKey,
+          result,
+          at: new Date().toISOString(),
+        });
+      }
+    }).catch((error) => {
+      deps.recordCacheWriteFailure?.({
+        type: `cache-write:${family}`,
+        message: `Cache write failed for ${family}: ${error?.message || "unknown error"}`,
+        cacheKey,
+        error,
+        at: new Date().toISOString(),
+      });
+    });
   }
 
   function winShareCacheKey(page) {
     const handState = deps.handState();
-    const state = deps.isOpponentPage(page) ? deps.currentKnownVillainStateForPage(page) : deps.currentKnownHeroState();
+    const state = deps.isOpponentPage(page) ? cardState.currentKnownVillainStateForPage(page) : cardState.currentKnownHeroState();
     return buildWinShareCacheKey({
       page,
       state,
@@ -429,10 +456,10 @@ export function createEquityController(deps) {
     }
     const isHeroPreflop = page === "hero" && handState.round === "preflop";
     const portfolio = isHeroPreflop ? deps.dashboardData().portfolios.hero : deps.portfolioForCurvePage(page);
-    const knownState = deps.isOpponentPage(page) ? deps.currentKnownVillainStateForPage(page) : deps.currentKnownHeroState();
+    const knownState = deps.isOpponentPage(page) ? cardState.currentKnownVillainStateForPage(page) : cardState.currentKnownHeroState();
     const remainingDeck = deps.isOpponentPage(page)
-      ? deps.remainingDeckForKnownCards(deps.allDealtCardsForDeck(page))
-      : deps.remainingDeckForKnownCards(deps.knownCardsForHand());
+      ? cardState.remainingDeckForKnownCards(cardState.allDealtCardsForDeck(page))
+      : cardState.remainingDeckForKnownCards(cardState.knownCardsForHand());
     return {
       kind: isHeroPreflop ? "heroPreflop" : "runout",
       bucketKeys: deps.dashboardData().bucketKeys,
@@ -454,10 +481,10 @@ export function createEquityController(deps) {
     }
 
     const portfolio = deps.portfolioForCurvePage(page);
-    const knownState = deps.isOpponentPage(page) ? deps.currentKnownVillainStateForPage(page) : deps.currentKnownHeroState();
+    const knownState = deps.isOpponentPage(page) ? cardState.currentKnownVillainStateForPage(page) : cardState.currentKnownHeroState();
     const remainingDeck = deps.isOpponentPage(page)
-      ? deps.remainingDeckForKnownCards(deps.allDealtCardsForDeck(page))
-      : deps.remainingDeckForKnownCards(deps.knownCardsForHand());
+      ? cardState.remainingDeckForKnownCards(cardState.allDealtCardsForDeck(page))
+      : cardState.remainingDeckForKnownCards(cardState.knownCardsForHand());
     return computeRunoutWinShares({
       portfolio,
       knownState,
@@ -471,7 +498,7 @@ export function createEquityController(deps) {
     return computePreflopHeroWinSharesKernel({
       portfolio: deps.dashboardData().portfolios.hero,
       handState: deps.handState(),
-      remainingDeck: deps.remainingDeckForKnownCards(deps.knownCardsForHand()),
+      remainingDeck: cardState.remainingDeckForKnownCards(cardState.knownCardsForHand()),
       evaluateGradationFive: deps.evaluateGradationFive,
     });
   }

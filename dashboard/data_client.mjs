@@ -1,3 +1,5 @@
+import { validateEmpiricalSpotPayload } from "./data_contracts.mjs";
+
 export async function readPreflopHiddenVillainClass(classKey) {
   const result = await readPreflopHiddenVillainClassResult(classKey);
   return result.ok ? result.value : null;
@@ -42,7 +44,20 @@ export async function readEmpiricalSpotResult(request) {
   });
   const result = await readJsonResult(`api/calibration/empirical-spot?${params}`, { cache: "force-cache" });
   if (!result.ok || result.value?.ok) {
-    return result;
+    if (!result.ok) {
+      return result;
+    }
+    try {
+      return { ...result, value: validateEmpiricalSpotPayload(result.value) };
+    } catch (error) {
+      return {
+        ok: false,
+        status: result.status,
+        reason: "validation",
+        error: error?.message || "Empirical spot payload validation failed.",
+        value: result.value,
+      };
+    }
   }
   return {
     ok: false,

@@ -11,6 +11,7 @@ import {
 } from "./villain_range.mjs";
 
 export function createCurveController(deps) {
+  const cardState = deps.cardState || deps;
   function ensureHeroMirrorCurves() {
     if (deps.activePage() !== "hero") {
       return;
@@ -24,7 +25,7 @@ export function createCurveController(deps) {
     if (currentCurves.range) {
       return;
     }
-    if (!deps.handState() || deps.currentBoardCards().length === 0) {
+    if (!deps.handState() || cardState.currentBoardCards().length === 0) {
       currentCurves.range = curvesForRangeAggregate();
       deps.updateCurrentStreetSnapshot();
       return;
@@ -38,7 +39,7 @@ export function createCurveController(deps) {
     if (!pages.length) {
       return;
     }
-    if (!deps.handState() || deps.currentBoardCards().length === 0 || deps.villainShowdown()) {
+    if (!deps.handState() || cardState.currentBoardCards().length === 0 || deps.villainShowdown()) {
       for (const page of pages) {
         currentCurves[page] = curvesForVillain(page);
       }
@@ -49,36 +50,48 @@ export function createCurveController(deps) {
   }
 
   function scheduleHeroMirrorCurves(pageOrPages) {
-    const jobKey = "curves:hero-mirror";
-    if (deps.asyncJobs.isScheduled(jobKey)) {
-      return;
-    }
     const pages = Array.isArray(pageOrPages) ? pageOrPages : [pageOrPages];
     const guards = new Map(pages.map((page) => [page, deps.createCurrentAsyncGuard({ purpose: "hero-mirror-curves", page })]));
-    deps.asyncJobs.schedule({
-      key: jobKey,
-      delayMs: 20,
-      run: () => {
-        if (!pages.some((page) => guards.get(page).isCurrent())) {
-          return;
-        }
-        const currentCurves = deps.currentCurves();
-        for (const page of pages) {
-          if (guards.get(page).isCurrent() && !currentCurves[page]) {
+    let scheduled = false;
+    for (const page of pages) {
+      const guard = guards.get(page);
+      const jobKey = heroMirrorCurveJobKey(page, guard);
+      if (deps.asyncJobs.isScheduled(jobKey)) {
+        continue;
+      }
+      scheduled = deps.asyncJobs.schedule({
+        key: jobKey,
+        delayMs: 20,
+        guard,
+        run: () => {
+          if (!guard.isCurrent()) {
+            return;
+          }
+          const currentCurves = deps.currentCurves();
+          if (!currentCurves[page]) {
             currentCurves[page] = page === "range" ? curvesForRangeAggregate() : curvesForVillain(page);
           }
-        }
-        deps.updateCurrentStreetSnapshot();
-        if (deps.activePage() === "hero") {
-          deps.updateLegend();
-          deps.renderAssets();
-          const focusedAsset = deps.focusedAsset();
-          if (focusedAsset?.sourcePage && pages.includes(focusedAsset.sourcePage)) {
-            deps.openFocus(focusedAsset);
+          deps.updateCurrentStreetSnapshot();
+          if (deps.activePage() === "hero") {
+            deps.updateLegend();
+            deps.renderAssets();
+            const focusedAsset = deps.focusedAsset();
+            if (focusedAsset?.sourcePage === page) {
+              deps.openFocus(focusedAsset);
+            }
           }
-        }
-      },
-    });
+        },
+      }) || scheduled;
+    }
+    return scheduled;
+  }
+
+  function heroMirrorCurveJobKey(page, guard) {
+    return `curves:hero-mirror:${page}:${hashString(guard.key)}`;
+  }
+
+  function currentPageCurveJobKey(page, guard) {
+    return `curves:page:${page}:${hashString(guard.key)}`;
   }
 
   function shouldDeferCurrentPageCurves() {
@@ -87,7 +100,7 @@ export function createCurveController(deps) {
       deps.isOpponentPage(activePage) &&
       deps.handState() &&
       !deps.villainShowdown() &&
-      deps.currentBoardCards().length > 0 &&
+      cardState.currentBoardCards().length > 0 &&
       !deps.preflopActionDerivedRangesActive() &&
       !deps.currentCurves()[activePage]
     );
@@ -101,8 +114,9 @@ export function createCurveController(deps) {
     deps.bumpCurveComputationToken();
     const page = deps.activePage();
     const guard = deps.createCurrentAsyncGuard({ purpose: "current-page-curves", page });
+    const jobKey = currentPageCurveJobKey(page, guard);
     deps.asyncJobs.schedule({
-      key: `curves:page:${page}`,
+      key: jobKey,
       delayMs,
       guard,
       replace: true,
@@ -141,7 +155,7 @@ export function createCurveController(deps) {
     }
     currentCurves.hero = curvesForKnownAssets(
       deps.dashboardData().portfolios.hero.assets,
-      deps.remainingDeckForKnownCards(deps.knownCardsForHand()),
+      cardState.remainingDeckForKnownCards(cardState.knownCardsForHand()),
       "hero",
     );
   }
@@ -194,9 +208,9 @@ export function createCurveController(deps) {
       assets,
       aggregates,
       remainingDeck,
-      knownCardsForAsset: (asset) => deps.knownCardsForAsset(asset, page),
-      knownState: handState ? (deps.isOpponentPage(page) ? deps.currentKnownVillainStateForPage(page) : deps.currentKnownHeroState()) : null,
-      aggregateTokens: deps.aggregateTokensForPage(page),
+      knownCardsForAsset: (asset) => cardState.knownCardsForAsset(asset, page),
+      knownState: handState ? (deps.isOpponentPage(page) ? cardState.currentKnownVillainStateForPage(page) : cardState.currentKnownHeroState()) : null,
+      aggregateTokens: cardState.aggregateTokensForPage(page),
       bucketCount: dashboardData.bucketCount,
       priorXByGradation: deps.priorXByGradation(),
       evaluateGradation: deps.evaluateGradation,
@@ -220,7 +234,7 @@ export function createCurveController(deps) {
       return deps.priorCurvesByPage(dashboardData)[page];
     }
     if (deps.villainShowdown()) {
-      return curvesForKnownAssets(assets, deps.remainingDeckForKnownCards(deps.allDealtCardsForDeck(page)), page);
+      return curvesForKnownAssets(assets, cardState.remainingDeckForKnownCards(cardState.allDealtCardsForDeck(page)), page);
     }
     if (deps.preflopActionDerivedRangesActive()) {
       const weighted = weightedCurvesForRangePage({
@@ -229,13 +243,13 @@ export function createCurveController(deps) {
         aggregates,
         range: inferredRangesForCurves(page)?.[page],
         holeTokens: ["V_1", "V_2"],
-        deadCards: deps.knownCardsForHand(),
+        deadCards: cardState.knownCardsForHand(),
       });
       if (weighted) {
         return weighted;
       }
     }
-    if (deps.currentBoardCards().length === 0) {
+    if (cardState.currentBoardCards().length === 0) {
       return preflopHiddenVillainCurves(assets);
     }
     return hiddenVillainCurves(assets);
@@ -254,7 +268,7 @@ export function createCurveController(deps) {
         aggregates: portfolio.aggregates || [],
         range: inferredRangesForCurves("range")?.hero,
         holeTokens: ["H_1", "H_2"],
-        deadCards: deps.currentBoardCards(),
+        deadCards: cardState.currentBoardCards(),
       });
       if (weighted) {
         return weighted;
@@ -262,7 +276,7 @@ export function createCurveController(deps) {
     }
     const page = deps.villainPageKeys()[0];
     const assets = dashboardData.portfolios[page]?.assets || deps.baseVillainPortfolio().assets;
-    if (deps.currentBoardCards().length === 0) {
+    if (cardState.currentBoardCards().length === 0) {
       return preflopHiddenVillainCurves(assets);
     }
     return hiddenVillainCurves(assets);
@@ -303,14 +317,14 @@ export function createCurveController(deps) {
 
   function hiddenVillainCurves(assets) {
     const dashboardData = deps.dashboardData();
-    const available = deps.remainingDeckForKnownCards(deps.knownCardsForHand());
+    const available = cardState.remainingDeckForKnownCards(cardState.knownCardsForHand());
     const futureBoardTokens = ["T", "R"].filter((token) => !deps.boardCardForToken(token));
     const aggregates = deps.baseVillainPortfolio().aggregates || [];
     return hiddenVillainCurvesKernel({
       assets,
       aggregates,
       available,
-      knownBoardState: deps.currentKnownBoardState(),
+      knownBoardState: cardState.currentKnownBoardState(),
       futureBoardTokens,
       bucketCount: dashboardData.bucketCount,
       priorXByGradation: deps.priorXByGradation(),
@@ -320,7 +334,7 @@ export function createCurveController(deps) {
   }
 
   function weightedCurvesForRangePage({ page, assets, aggregates, range, holeTokens, deadCards }) {
-    const knownBoardState = deps.currentKnownBoardState();
+    const knownBoardState = cardState.currentKnownBoardState();
     if (!range || !rangeHasPositiveLegalCombo(range, knownBoardState)) {
       return null;
     }
@@ -328,16 +342,16 @@ export function createCurveController(deps) {
       assets,
       aggregates,
       range,
-      available: deps.remainingDeckForKnownCards(deadCards),
+      available: cardState.remainingDeckForKnownCards(deadCards),
       knownBoardState,
-      futureBoardTokens: deps.missingBoardTokens(),
+      futureBoardTokens: cardState.missingBoardTokens(),
       holeTokens,
       bucketCount: deps.dashboardData().bucketCount,
       priorXByGradation: deps.priorXByGradation(),
       chooseTable: deps.handEvaluator().chooseTable,
       evaluateGradation: deps.evaluateGradation,
       nsims: DEFAULT_RANGE_CURVE_SIMS,
-      seed: hashString(`${deps.assetVersion()}:range-curves:${page}:${deps.tableConfig().playerCount}:${JSON.stringify(deps.visiblePlayerActionsForCurrentStreet())}:${JSON.stringify(deadCards.map(cardId))}:${JSON.stringify(deps.currentBoardCards().map(cardId))}`),
+      seed: hashString(`${deps.assetVersion()}:range-curves:${page}:${deps.tableConfig().playerCount}:${JSON.stringify(deps.visiblePlayerActionsForCurrentStreet())}:${JSON.stringify(deadCards.map(cardId))}:${JSON.stringify(cardState.currentBoardCards().map(cardId))}`),
     });
   }
 
@@ -354,13 +368,13 @@ export function createCurveController(deps) {
     if (!deps.preflopActionDerivedRangesActive()) {
       return {};
     }
-    const deadCards = page === "range" ? deps.currentBoardCards() : deps.knownCardsForHand();
+    const deadCards = page === "range" ? cardState.currentBoardCards() : cardState.knownCardsForHand();
     const visibleActions = deps.visiblePlayerActionsForCurrentStreet();
     return inferPreflopRanges({
       tableConfig: deps.tableConfig(),
       actions: visibleActions,
       deadCards,
-      knownBoard: deps.currentBoardCards(),
+      knownBoard: cardState.currentBoardCards(),
       bucketCount: deps.dashboardData().bucketCount,
       evaluateGradation: deps.evaluateGradation,
       empiricalSpots: deps.empiricalSpotsForCurrentActions(),

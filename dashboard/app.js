@@ -40,6 +40,7 @@ import {
   readPreflopPrimaryClassResult,
 } from "./data_client.mjs";
 import { createDisplayPreferencesController } from "./display_preferences_controller.mjs";
+import { createEmpiricalEvidenceController } from "./empirical_evidence_controller.mjs";
 import { createHandEvaluator } from "./evaluation.mjs";
 import { createEquityController } from "./equity_controller.mjs";
 import { createCurveController } from "./curve_controller.mjs";
@@ -71,9 +72,6 @@ import {
   playerHasFoldedByStreet,
 } from "./player_actions.mjs";
 import { createPreflopClassStore } from "./stores/preflop_class_store.mjs";
-import {
-  createEmpiricalSpotStore,
-} from "./stores/empirical_spot_store.mjs";
 import {
   persistCalibrationContext,
   persistHideInactiveAssets,
@@ -148,15 +146,15 @@ let tableConfig = normalizeTableConfig(appState.ui.tableConfig);
 let calibrationContext = appState.ui.calibrationContext || { stakeBucket: "micro", yearBucket: "2009-2010" };
 let playerProfiles = appState.ui.playerProfiles || {};
 const asyncJobs = createAsyncJobRunner({ onError: recordAsyncJobFailure });
-const empiricalSpotStore = createEmpiricalSpotStore({
+const empiricalEvidence = createEmpiricalEvidenceController({
   readSpot: readEmpiricalSpot,
   readHealth,
   requestForAction: empiricalRequestForPlayerAction,
-  onLoadingChange: () => {
+  onLoading: () => {
     renderCalibrationStatus();
     renderHoldingDisplay();
   },
-  onUpdated: () => {
+  onEvidenceChanged: () => {
     invalidateRangeDerivedState();
     renderCalibrationStatus();
     renderHoldingDisplay();
@@ -166,7 +164,7 @@ const empiricalSpotStore = createEmpiricalSpotStore({
 const calibrationStatus = createCalibrationStatusController({
   calibrationContext: () => calibrationContext,
   documentRef: document,
-  empiricalSpotStore: () => empiricalSpotStore,
+  empiricalEvidence: () => empiricalEvidence,
   setWorkerFailures: (value) => {
     workerFailures = value;
     appState.computed.workerFailures = workerFailures;
@@ -253,14 +251,11 @@ const configPage = createConfigPageController({
 const equityController = createEquityController({
   activePage: () => activePage,
   activeVillainPageKeys,
-  allDealtCardsForDeck,
   asyncJobs,
   assetVersion: () => ASSET_VERSION,
+  cardState,
   computationWorker: () => computationWorker,
   createCurrentAsyncGuard,
-  currentBoardCards,
-  currentKnownHeroState,
-  currentKnownVillainStateForPage,
   currentWinShares: () => currentWinShares,
   dashboardData: () => dashboardData,
   empiricalSpotsForCurrentActions,
@@ -270,13 +265,12 @@ const equityController = createEquityController({
   handState: () => handState,
   isOpponentPage,
   isVillainPageFolded,
-  knownCardsForHand,
   openFocus,
   patchCurrentWinShares,
   playerProfilesForInference,
   portfolioForCurvePage,
   priorWinSharesByPage,
-  remainingDeckForKnownCards,
+  recordCacheWriteFailure: recordWorkerFailure,
   renderAssets,
   saveCurrentMomentCache,
   setCurrentWinShares: (shares) => { currentWinShares = shares; },
@@ -288,19 +282,14 @@ const equityController = createEquityController({
 });
 const curveController = createCurveController({
   activePage: () => activePage,
-  aggregateTokensForPage,
-  allDealtCardsForDeck,
   asyncJobs,
   assetVersion: () => ASSET_VERSION,
   baseVillainPortfolio,
   boardCardForToken,
   bumpCurveComputationToken: () => { curveComputationToken += 1; },
+  cardState,
   createCurrentAsyncGuard,
-  currentBoardCards,
   currentCurves: () => currentCurves,
-  currentKnownBoardState,
-  currentKnownHeroState,
-  currentKnownVillainStateForPage,
   dashboardData: () => dashboardData,
   empiricalSpotsForCurrentActions,
   evaluateGradation,
@@ -308,9 +297,6 @@ const curveController = createCurveController({
   handEvaluator: () => handEvaluator,
   handState: () => handState,
   isOpponentPage,
-  knownCardsForAsset,
-  knownCardsForHand,
-  missingBoardTokens,
   openFocus,
   playerProfilesForInference,
   preflopActionDerivedRangesActive,
@@ -320,7 +306,6 @@ const curveController = createCurveController({
   priorAggregateCurve,
   priorCurvesByPage,
   priorXByGradation: () => priorXByGradation,
-  remainingDeckForKnownCards,
   renderAssets,
   saveCurrentMomentCache,
   tableConfig: () => tableConfig,
@@ -774,7 +759,7 @@ function updateCalibrationContext(nextContext) {
     yearBucket: nextContext.yearBucket || "2009-2010",
   };
   persistCalibrationContext(localStorage, calibrationContext);
-  empiricalSpotStore.clearMisses();
+  empiricalEvidence.clearMisses();
   invalidateRangeDerivedState();
   renderAssets();
 }
@@ -932,7 +917,7 @@ function lastRemovableActionId() {
 }
 
 function empiricalEvidenceForAction(action) {
-  return empiricalSpotStore.evidenceForAction(action);
+  return empiricalEvidence.evidenceForAction(action);
 }
 
 function actionPlayerLabel(playerId) {
@@ -1241,11 +1226,11 @@ function curvesForRangeAggregate() {
 }
 
 function ensureEmpiricalSpotsForActions() {
-  empiricalSpotStore.ensureForActions(visiblePlayerActionsForCurrentStreet());
+  empiricalEvidence.ensureForActions(visiblePlayerActionsForCurrentStreet());
 }
 
 function empiricalSpotsForCurrentActions() {
-  return empiricalSpotStore.spotsForActions(visiblePlayerActionsForCurrentStreet());
+  return empiricalEvidence.spotsForActions(visiblePlayerActionsForCurrentStreet());
 }
 
 function empiricalRequestForPlayerAction(action) {
@@ -1264,7 +1249,7 @@ function empiricalRequestForPlayerAction(action) {
 }
 
 function empiricalEvidenceForRange(range) {
-  return empiricalSpotStore.evidenceForRange(range, visiblePlayerActionsForCurrentStreet());
+  return empiricalEvidence.evidenceForRange(range, visiblePlayerActionsForCurrentStreet());
 }
 
 function playerProfilesForInference() {

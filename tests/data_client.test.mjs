@@ -59,6 +59,33 @@ test("empirical spot client returns network errors as typed results", async () =
   });
 });
 
+test("empirical spot client rejects incompatible provenance", async () => {
+  await withFetchStub(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      cache: {
+        contractVersion: "empirical-spot-cache-v0",
+        modelVersion: "range-engine-v1",
+      },
+      request: {},
+      handClasses: {},
+      spotProbabilities: {},
+    }),
+  }), async () => {
+    const result = await readEmpiricalSpotResult({
+      street: "preflop",
+      position: "BTN",
+      playerCount: 6,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "validation");
+    assert.match(result.error, /incompatible/);
+  });
+});
+
 async function withFetchStub(fetchStub, fn) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = fetchStub;

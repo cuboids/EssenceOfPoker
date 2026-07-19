@@ -11,6 +11,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from essence_of_poker.calibration.empirical_repository import (
+    count_rows,
+    default_source_key,
+    default_source_key_for_path,
+    empirical_spot_cache_requests as repository_empirical_spot_cache_requests,
+    level_count_maps,
+    source_summary,
+)
 from essence_of_poker.version_registry import VERSION_REGISTRY
 
 ACTION_TYPES = ("fold", "check", "call", "bet", "raise", "all-in")
@@ -24,7 +32,6 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "calibration_co
 DEFAULT_SPOT_CACHE_PATH = Path(__file__).resolve().parents[1] / "data" / "empirical_spot_cache.json"
 DEFAULT_ALPHA = 0.5
 DEFAULT_MIN_EXACT_COUNT = 25
-TRAINING_FOLD_PREDICATE = "fold != 0"
 EXPECTED_EMPIRICAL_SPOT_CACHE_VERSION = VERSION_REGISTRY.generated_data["empiricalSpotCache"]
 EXPECTED_RANGE_MODEL_VERSION = VERSION_REGISTRY.models["rangeEngine"]
 
@@ -196,11 +203,17 @@ def empirical_spot_cache_key(request: dict[str, Any]) -> str:
     ))
 
 
-@lru_cache(maxsize=4)
 def load_empirical_spot_cache(cache_path: str) -> dict[str, Any] | None:
     path = Path(cache_path)
     if not path.exists():
         return None
+    stat = path.stat()
+    return _load_empirical_spot_cache_for_signature(str(path), stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=8)
+def _load_empirical_spot_cache_for_signature(cache_path: str, mtime_ns: int, size: int) -> dict[str, Any] | None:
+    path = Path(cache_path)
     with path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
     if payload.get("kind") != "empirical_spot_cache" or not isinstance(payload.get("spots"), dict):
@@ -322,107 +335,7 @@ def source_database_summary(db_path: Path) -> dict[str, Any]:
 
 
 def empirical_spot_cache_requests(connection: sqlite3.Connection, source_key: str) -> list[dict[str, Any]]:
-    rows = connection.execute(
-        f"""
-        SELECT DISTINCT street, position, player_count, stake_bucket, year_bucket, facing_aggression, amount_bucket
-        FROM action_feature_counts
-        WHERE source_key = ? AND {TRAINING_FOLD_PREDICATE}
-        ORDER BY street, position, player_count, stake_bucket, year_bucket, facing_aggression, amount_bucket
-        """,
-        (source_key,),
-    ).fetchall()
-    return [
-        normalize_request(
-            street=row["street"],
-            position=row["position"],
-            player_count=row["player_count"],
-            stake_bucket=row["stake_bucket"],
-            year_bucket=row["year_bucket"],
-            facing_aggression=bool(row["facing_aggression"]),
-            amount_bucket=row["amount_bucket"],
-        )
-        for row in rows
-    ]
-
-
-def level_count_maps(connection: sqlite3.Connection, source_key: str, request: dict[str, Any]) -> list[tuple[str, dict[str, dict[str, int]]]]:
-    return [
-        ("exact", hand_class_counts(connection, source_key, {
-            "street": request["street"],
-            "position": request["position"],
-            "player_count": request["playerCount"],
-            "stake_bucket": request["stakeBucket"],
-            "year_bucket": request["yearBucket"],
-            "facing_aggression": int(request["facingAggression"]),
-            "amount_bucket": request["amountBucket"],
-        })),
-        ("no_year", hand_class_counts(connection, source_key, {
-            "street": request["street"],
-            "position": request["position"],
-            "player_count": request["playerCount"],
-            "stake_bucket": request["stakeBucket"],
-            "facing_aggression": int(request["facingAggression"]),
-            "amount_bucket": request["amountBucket"],
-        })),
-        ("no_stake_year", hand_class_counts(connection, source_key, {
-            "street": request["street"],
-            "position": request["position"],
-            "player_count": request["playerCount"],
-            "facing_aggression": int(request["facingAggression"]),
-            "amount_bucket": request["amountBucket"],
-        })),
-        ("spot", {"*": count_rows(connection, source_key, {
-            "street": request["street"],
-            "position": request["position"],
-            "player_count": request["playerCount"],
-            "facing_aggression": int(request["facingAggression"]),
-            "amount_bucket": request["amountBucket"],
-        })}),
-        ("street_position", {"*": count_rows(connection, source_key, {
-            "street": request["street"],
-            "position": request["position"],
-        })}),
-        ("street", {"*": count_rows(connection, source_key, {
-            "street": request["street"],
-        })}),
-    ]
-
-
-def hand_class_counts(connection: sqlite3.Connection, source_key: str, predicates: dict[str, Any]) -> dict[str, dict[str, int]]:
-    rows = grouped_count_rows(connection, source_key, predicates, group_by=("hand_class", "action_type"))
-    result: dict[str, dict[str, int]] = {}
-    for row in rows:
-        result.setdefault(str(row["hand_class"]), {})[str(row["action_type"])] = int(row["count"])
-    return result
-
-
-def count_rows(connection: sqlite3.Connection, source_key: str, predicates: dict[str, Any]) -> dict[str, int]:
-    rows = grouped_count_rows(connection, source_key, predicates, group_by=("action_type",))
-    return {str(row["action_type"]): int(row["count"]) for row in rows}
-
-
-def grouped_count_rows(
-    connection: sqlite3.Connection,
-    source_key: str,
-    predicates: dict[str, Any],
-    *,
-    group_by: tuple[str, ...],
-) -> list[sqlite3.Row]:
-    clauses = ["source_key = ?", TRAINING_FOLD_PREDICATE]
-    params: list[Any] = [source_key]
-    for key, value in predicates.items():
-        clauses.append(f"{key} = ?")
-        params.append(value)
-    group_sql = ", ".join(group_by)
-    return list(connection.execute(
-        f"""
-        SELECT {group_sql}, SUM(count) AS count
-        FROM action_feature_counts
-        WHERE {' AND '.join(clauses)}
-        GROUP BY {group_sql}
-        """,
-        params,
-    ))
+    return repository_empirical_spot_cache_requests(connection, source_key, normalize_request)
 
 
 def best_hand_class_entry(
@@ -475,33 +388,4 @@ def smoothed_probabilities(counts: dict[str, int], alpha: float = DEFAULT_ALPHA)
     return {action: (counts.get(action, 0) + alpha) / denominator for action in ACTION_TYPES}
 
 
-@lru_cache(maxsize=8)
-def default_source_key_for_path(db_path: str) -> str:
-    with closing(sqlite3.connect(db_path)) as connection:
-        return default_source_key(connection)
-
-
-def default_source_key(connection: sqlite3.Connection) -> str:
-    row = connection.execute("SELECT source_key FROM corpus_sources ORDER BY imported_at DESC LIMIT 1").fetchone()
-    if row is None:
-        raise ValueError("no compact calibration source has been imported")
-    return str(row[0])
-
-
-def source_summary(connection: sqlite3.Connection, source_key: str) -> dict[str, Any]:
-    source = connection.execute(
-        "SELECT source_key, sha256, bytes FROM corpus_sources WHERE source_key = ?",
-        (source_key,),
-    ).fetchone()
-    files = connection.execute(
-        "SELECT COUNT(*), SUM(hand_count), SUM(action_count) FROM corpus_files WHERE source_key = ?",
-        (source_key,),
-    ).fetchone()
-    return {
-        "sourceKey": source["source_key"],
-        "sha256": source["sha256"],
-        "bytes": source["bytes"],
-        "files": files[0],
-        "hands": files[1],
-        "actions": files[2],
-    }
+load_empirical_spot_cache.cache_clear = _load_empirical_spot_cache_for_signature.cache_clear  # type: ignore[attr-defined]

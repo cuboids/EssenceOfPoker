@@ -13,6 +13,7 @@ from essence_of_poker.calibration.compact_model import train_compact_softmax_mod
 from essence_of_poker.calibration.empirical_runtime import (
     build_empirical_spot_cache,
     empirical_spot_cache_status,
+    load_empirical_spot_cache,
     empirical_spot_payload,
     empirical_spot_payload_cached,
 )
@@ -272,6 +273,27 @@ hand = 123
             self.assertTrue(payload["cache"]["hit"])
             self.assertEqual(payload["cache"]["contractVersion"], "empirical-spot-cache-v1")
             self.assertEqual(len(payload["handClasses"]), 169)
+
+    def test_empirical_spot_cache_reloads_when_file_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "empirical_spots.json"
+            first = {
+                "kind": "empirical_spot_cache",
+                "version": 1,
+                "contractVersion": "empirical-spot-cache-v1",
+                "modelVersion": "range-engine-v1",
+                "sourceDb": {"sha256": "a"},
+                "spots": {"first": {"ok": True}},
+            }
+            second = {
+                **first,
+                "sourceDb": {"sha256": "b"},
+                "spots": {"second": {"ok": True}},
+            }
+            output.write_text(json.dumps(first), encoding="utf-8")
+            self.assertIn("first", load_empirical_spot_cache(str(output))["spots"])
+            output.write_text(json.dumps(second), encoding="utf-8")
+            self.assertIn("second", load_empirical_spot_cache(str(output))["spots"])
 
     def test_empirical_spot_cache_status_rejects_incompatible_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

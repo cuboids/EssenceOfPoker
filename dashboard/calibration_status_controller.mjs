@@ -9,7 +9,7 @@ export function createCalibrationStatusController(deps) {
     if (!container) {
       return;
     }
-    const store = deps.empiricalSpotStore();
+    const store = deps.empiricalEvidence();
     const health = store.health?.data?.empiricalCalibration;
     const actions = deps.visiblePlayerActionsForCurrentStreet();
     const summary = store.summary(actions);
@@ -37,7 +37,7 @@ export function createCalibrationStatusController(deps) {
   }
 
   async function hydrateEmpiricalCalibrationHealth() {
-    await deps.empiricalSpotStore().hydrateHealth();
+    await deps.empiricalEvidence().hydrateHealth();
   }
 
   function recordWorkerFailure(failure) {

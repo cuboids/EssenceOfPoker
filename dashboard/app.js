@@ -6,6 +6,7 @@ import {
   categoryOrder,
 } from "./app_config.mjs";
 import { createAppState, initializeHandState } from "./app_state.mjs";
+import { loadDashboardBootstrap } from "./app_bootstrap.mjs";
 import { createCardStateController } from "./card_state_controller.mjs";
 import {
   aggregateIsActive,
@@ -41,16 +42,10 @@ import {
 } from "./data_client.mjs";
 import { createDisplayPreferencesController } from "./display_preferences_controller.mjs";
 import { createEmpiricalEvidenceController } from "./empirical_evidence_controller.mjs";
-import { createHandEvaluator } from "./evaluation.mjs";
 import { createEquityController } from "./equity_controller.mjs";
 import { createCurveController } from "./curve_controller.mjs";
 import { holdingDisplayModel } from "./renderers/holding_renderer.mjs";
 import { renderLegendHtml } from "./renderers/legend_renderer.mjs";
-import {
-  validateDashboardData,
-  validatePreflopHandEquityCache,
-  validatePriorWinShares,
-} from "./data_contracts.mjs";
 import {
   assetsForPage,
   currentConcreteAssetCount as currentConcreteAssetCountForPortfolio,
@@ -432,40 +427,17 @@ const handFlow = createHandFlowController({
   normalizeTableConfig,
 });
 
-Promise.all([
-  fetch(`data/prior_portfolio.json?v=${ASSET_VERSION}`).then((response) => response.json()),
-  fetch(`data/prior_win_shares.json?v=${ASSET_VERSION}`).then((response) => response.json()),
-  fetch(`data/preflop_hand_equity_cache.json?v=${ASSET_VERSION}`).then((response) => response.json()),
-])
-  .then(([data, priorWinShares, handEquityCache]) => {
-    validateDashboardData(data);
-    validatePriorWinShares(priorWinShares);
-    validatePreflopHandEquityCache(handEquityCache);
-    preflopHandEquityCache = handEquityCache;
-    bucketLookup = new Map(data.bucketKeys.map((bucket) => [bucket.key, bucket.gradation]));
-    handEvaluator = createHandEvaluator(bucketLookup, data.bucketCount);
+loadDashboardBootstrap({ assetVersion: ASSET_VERSION })
+  .then((bootstrap) => {
+    preflopHandEquityCache = bootstrap.preflopHandEquityCache;
+    bucketLookup = bootstrap.bucketLookup;
+    handEvaluator = bootstrap.handEvaluator;
+    priorXByGradation = bootstrap.priorXByGradation;
+    aggregatePriorXByGradation = bootstrap.aggregatePriorXByGradation;
     computationWorker = createComputationWorker(ASSET_VERSION, { onFailure: recordWorkerFailure });
-    priorXByGradation = new Map(data.curve.map((point) => [point.gradation, point.x]));
-    aggregatePriorXByGradation = aggregatePriorXMap(data);
-    data.priorWinShares = priorWinShares;
-    renderDashboard(data);
+    renderDashboard(bootstrap.dashboardData);
     hydrateEmpiricalCalibrationHealth();
   });
-
-function aggregatePriorXMap(data) {
-  const lookup = new Map();
-  const aggregate = data.priorAggregate;
-  if (!aggregate?.counts || !aggregate.totalCombos) {
-    return priorXByGradation;
-  }
-
-  let cumulative = 0;
-  for (let gradation = 1; gradation <= data.bucketCount; gradation += 1) {
-    cumulative += aggregate.counts[gradation] || 0;
-    lookup.set(gradation, cumulative / aggregate.totalCombos);
-  }
-  return lookup;
-}
 
 function renderDashboard(data) {
   dashboardData = data;

@@ -20,6 +20,7 @@ DATA_ARTIFACTS = {
     "priorPortfolio": PROJECT_ROOT / "dashboard" / "data" / "prior_portfolio.json",
     "priorWinShares": PROJECT_ROOT / "dashboard" / "data" / "prior_win_shares.json",
     "preflopHandEquity": PROJECT_ROOT / "dashboard" / "data" / "preflop_hand_equity_cache.json",
+    "rangeModelDefaults": PROJECT_ROOT / "dashboard" / "data" / "range_model_defaults.json",
     "preflopAggregateClasses": PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_aggregate_manifest.json",
     "preflopHiddenVillainClasses": PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_hidden_villain_manifest.json",
     "preflopPrimaryClasses": PROJECT_ROOT / "essence_of_poker" / "data" / "preflop_primary_manifest.json",

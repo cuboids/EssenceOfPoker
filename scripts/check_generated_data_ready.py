@@ -15,6 +15,7 @@ REQUIRED_FILES = (
     ROOT / "dashboard" / "data" / "prior_portfolio.json",
     ROOT / "dashboard" / "data" / "prior_win_shares.json",
     ROOT / "dashboard" / "data" / "preflop_hand_equity_cache.json",
+    ROOT / "dashboard" / "data" / "range_model_defaults.json",
     ROOT / "essence_of_poker" / "data" / "preflop_aggregate_manifest.json",
     ROOT / "essence_of_poker" / "data" / "preflop_hidden_villain_manifest.json",
     ROOT / "essence_of_poker" / "data" / "preflop_primary_manifest.json",
@@ -55,6 +56,21 @@ def generated_data_errors() -> list[str]:
                 errors.append(f"unexpected class files: {', '.join(extra[:5])}")
             continue
         errors.extend(class_payload_errors(class_dir, expected_classes, payload_key))
+    errors.extend(range_model_default_errors(ROOT / "dashboard" / "data" / "range_model_defaults.json"))
+    return errors
+
+
+def range_model_default_errors(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    errors: list[str] = []
+    if payload.get("kind") != "range_model_parameters":
+        errors.append("range model defaults have an invalid kind")
+    if payload.get("version") != payload.get("model", {}).get("name"):
+        errors.append("range model defaults version must match model name")
+    if not isinstance(payload.get("model", {}).get("openRaiseFrequency"), dict):
+        errors.append("range model defaults are missing openRaiseFrequency")
     return errors
 
 

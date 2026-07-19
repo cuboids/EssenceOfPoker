@@ -31,7 +31,7 @@ test("interesting hand replay normalizes hero, actions, board, and showdown card
   assert.equal(imported.tableConfig.heroPosition, "HJ");
   assert.equal(imported.tableConfig.playerStacks.HJ, 100);
   assert.deepEqual(imported.heroCards.map(cardKey), ["2.1", "5.3"]);
-  assert.deepEqual(imported.boardCards.map(cardKey), ["1.1", "7.3", "6.4", "3.4", "3.1"]);
+  assert.deepEqual(imported.boardCards.map(cardKey), ["1.1", "8.3", "9.4", "3.4", "12.1"]);
   assert.deepEqual(imported.playerActions.slice(0, 3), [
     { id: "ih1", player: "villain:LJ", street: "preflop", type: "fold" },
     { id: "ih2", player: "hero", street: "preflop", type: "raise", amount: 3 },
@@ -42,7 +42,7 @@ test("interesting hand replay normalizes hero, actions, board, and showdown card
   const view = handViewFromModel(model);
   assert.equal(view.round, "river");
   assert.deepEqual([view.h1, view.h2].map(cardKey), imported.heroCards.map(cardKey));
-  assert.deepEqual([...view.flop, view.turn, view.river].map(cardKey), ["1.1", "6.4", "7.3", "3.4", "3.1"]);
+  assert.deepEqual([...view.flop, view.turn, view.river].map(cardKey), ["1.1", "8.3", "9.4", "3.4", "12.1"]);
 });
 
 test("interesting action normalization drops unmapped source players", () => {

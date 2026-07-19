@@ -74,6 +74,9 @@ test("cards module owns rank/suit symbols, parsing, deck identity, and ordering"
   assert.equal(suitSymbol(1), "♠");
   assert.deepEqual(parsePhysicalCard("K♠"), card(2, 1));
   assert.ok(sameCard(card(2, 1), parsePhysicalCard("ks")));
+  assert.deepEqual(parsePhysicalCard("Td"), card(5, 3));
+  assert.deepEqual(parsePhysicalCard("7d"), card(8, 3));
+  assert.deepEqual(parsePhysicalCard("2c"), card(13, 4));
   assert.deepEqual([card(13, 4), card(1, 2)].sort(cardCompare), [card(1, 2), card(13, 4)]);
 });
 

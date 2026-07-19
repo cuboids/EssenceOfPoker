@@ -26,6 +26,10 @@ import {
   bettingStateForStreet as potBettingStateForStreet,
   legalActionPlan as potLegalActionPlan,
 } from "../dashboard/player_action_pot.mjs";
+import {
+  bettingRoundIsClosed as turnOrderBettingRoundIsClosed,
+  nextActionPlayer as turnOrderNextActionPlayer,
+} from "../dashboard/player_action_turn_order.mjs";
 
 const sixMaxOrder = ["villain:LJ", "villain:HJ", "villain:CO", "villain:BTN", "villain:SB", "hero"];
 const stacksFor = (order, stack = 100) => Object.fromEntries(order.map((player) => [player, stack]));
@@ -256,6 +260,7 @@ test("next action player follows street order and skips folders", () => {
   const order = ["villain:LJ", "villain:HJ", "villain:CO", "hero", "villain:SB", "villain:BB"];
   let actions = [];
   assert.equal(nextActionPlayer({ order, actions, street: "preflop" }), "villain:LJ");
+  assert.equal(turnOrderNextActionPlayer({ order, actions, street: "preflop" }), "villain:LJ");
 
   actions = appendPlayerAction(actions, { player: "villain:LJ", street: "preflop", type: "fold" });
   assert.equal(nextActionPlayer({ order, actions, street: "preflop" }), "villain:HJ");
@@ -293,6 +298,7 @@ test("preflop action closes after open, folds, and big blind call", () => {
   ];
 
   assert.equal(bettingRoundIsClosed({ order, actions, street: "preflop" }), true);
+  assert.equal(turnOrderBettingRoundIsClosed({ order, actions, street: "preflop" }), true);
   assert.equal(nextActionPlayer({ order, actions, street: "preflop" }), null);
 });
 

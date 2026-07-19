@@ -44,12 +44,12 @@ export function suitSymbol(suit) {
 }
 
 export function parsePhysicalCard(input) {
-  const match = input.trim().toLowerCase().match(/^(1[0-3]|[1-9]|a|k|q|j|t|10)\s*([shdc♠♥♦♣])$/);
+  const match = input.trim().toLowerCase().match(/^(a|k|q|j|t|10|[2-9])\s*([shdc♠♥♦♣])$/);
   if (!match) {
     return null;
   }
-  const rankLookup = { a: 1, k: 2, q: 3, j: 4, t: 5, "10": 5 };
-  const rank = rankLookup[match[1]] || Number(match[1] === "10" ? 5 : match[1]);
+  const rankLookup = { a: 1, k: 2, q: 3, j: 4, t: 5, "10": 5, 9: 6, 8: 7, 7: 8, 6: 9, 5: 10, 4: 11, 3: 12, 2: 13 };
+  const rank = rankLookup[match[1]];
   const suit = { s: 1, "♠": 1, h: 2, "♥": 2, d: 3, "♦": 3, c: 4, "♣": 4 }[match[2]];
   return { rank, suit, id: cardId({ rank, suit }) };
 }

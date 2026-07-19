@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 
 import { preflopClassKeyForCards } from "../dashboard/cache_keys.mjs";
@@ -26,6 +27,7 @@ import { rangeExplanation } from "../dashboard/range_explainability.mjs";
 const card = (rank, suit) => ({ rank, suit, id: (rank - 1) * 4 + (suit - 1) });
 
 test("range model defaults are isolated as a frozen versionable artifact", () => {
+  const artifact = JSON.parse(fs.readFileSync("dashboard/data/range_model_defaults.json", "utf-8"));
   assert.equal(DEFAULT_PREFLOP_RANGE_MODEL.name, "heuristic_empirical_hybrid");
   assert.equal(Object.isFrozen(DEFAULT_PREFLOP_RANGE_MODEL), true);
   assert.equal(Object.isFrozen(DEFAULT_PREFLOP_RANGE_MODEL.openRaiseFrequency[6]), true);
@@ -34,6 +36,11 @@ test("range model defaults are isolated as a frozen versionable artifact", () =>
     name: "heuristic_empirical_hybrid",
     version: "heuristic_empirical_hybrid",
     model: DEFAULT_PREFLOP_RANGE_MODEL,
+  });
+  assert.deepEqual(artifact, {
+    kind: "range_model_parameters",
+    version: "heuristic_empirical_hybrid",
+    model: JSON.parse(JSON.stringify(DEFAULT_PREFLOP_RANGE_MODEL)),
   });
 });
 

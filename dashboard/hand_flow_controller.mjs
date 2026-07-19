@@ -1,6 +1,12 @@
 import * as HandModel from "./hand_state.mjs";
 import { handViewFromModel } from "./hand_view.mjs";
-import { cardCompare, cardId, hasDuplicateCards, sameCard } from "./cards.mjs";
+import { cardId } from "./cards.mjs";
+import { nextRoundDeal, startPreflopFromHoleCards as buildPreflopDeal } from "./hand_flow_dealing.mjs";
+import {
+  knownCardEditPatch,
+  pendingHoleCardEdit,
+  showdownVillainCardEditPatch,
+} from "./hand_flow_card_edit.mjs";
 import { loadRandomInterestingHandResult } from "./interesting_hand_loader.mjs";
 import { createHandTransactionDispatcher, handTransaction, HAND_EFFECTS } from "./hand_transactions.mjs";
 import {
@@ -123,12 +129,10 @@ export function createHandFlowController(deps) {
   }
 
   async function applyPendingHoleCardEdit(token, nextCard) {
-    const index = token === "H_1" ? 0 : 1;
-    const nextPending = [...HandModel.pendingHoleCards(deps.handModel())];
-    nextPending[index] = nextCard;
-    if (hasDuplicateCards(nextPending.filter(Boolean))) {
+    const result = pendingHoleCardEdit({ handModel: deps.handModel(), token, nextCard });
+    if (!result.ok) {
       transactions.dispatch(handTransaction("pending-hole-card-duplicate", {
-        patch: { cardEditError: "That card is already in the other hole-card slot." },
+        patch: { cardEditError: result.message },
         effects: [HAND_EFFECTS.RENDER_HOLDING],
       }));
       return;
@@ -136,79 +140,48 @@ export function createHandFlowController(deps) {
     transactions.dispatch(handTransaction("pending-hole-card-edit-accepted", {
       patch: { editingCardToken: null, cardEditError: "" },
     }));
-    if (nextPending.every(Boolean)) {
-      await startPreflopFromHoleCards(nextPending);
+    if (result.complete) {
+      await startPreflopFromHoleCards(result.holeCards);
       return;
     }
     transactions.dispatch(handTransaction("pending-hole-card-edited", {
-      patch: { handModel: HandModel.setPendingHoleCard(deps.handModel(), token, nextCard) },
+      patch: { handModel: result.handModel },
       effects: [HAND_EFFECTS.SYNC_HAND_STATE, HAND_EFFECTS.RENDER_HOLDING],
     }));
   }
 
   function applyCardEdit(token, nextCard) {
-    if ((token === "V_1" || token === "V_2") && deps.villainShowdown() && deps.isOpponentPage(deps.activePage())) {
+    const result = knownCardEditPatch({
+      handModel: deps.handModel(),
+      token,
+      nextCard,
+      activePage: deps.activePage(),
+      villainShowdown: deps.villainShowdown(),
+      isOpponentPage: deps.isOpponentPage,
+      currentCard: deps.cardForTokenOnPage(token, deps.activePage()),
+      remainingDeckForKnownCards: deps.remainingDeckForKnownCards,
+      dealCardsFromDeck: deps.dealCardsFromDeck,
+    });
+    if (result.deferredShowdownEdit) {
       return applyShowdownVillainCardEdit(deps.activePage(), token, nextCard);
     }
-    try {
-      return { ok: true, patch: { handModel: HandModel.editKnownCardModel(deps.handModel(), token, nextCard) } };
-    } catch (error) {
-      if (!HandModel.isShowdown(deps.handModel()) && error.message.includes("replacement villain cards")) {
-        const currentCard = deps.cardForTokenOnPage(token, deps.activePage());
-        const physicals = HandModel.physicalCardsFromModel(deps.handModel());
-        const editedVisibleCards = [
-          ...physicals.hole,
-          ...physicals.flop,
-          physicals.turn,
-          physicals.river,
-        ]
-          .filter(Boolean)
-          .map((card) => (currentCard && sameCard(card, currentCard) ? nextCard : card));
-        const replacementVillain = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards(editedVisibleCards), 2).sort(cardCompare);
-        return {
-          ok: true,
-          patch: {
-            handModel: HandModel.editKnownCardModel(deps.handModel(), token, nextCard, replacementVillain),
-          },
-        };
-      } else {
-        return { ok: false, message: error.message };
-      }
-    }
+    return result;
   }
 
   function applyShowdownVillainCardEdit(page, token, nextCard) {
     const currentCards = deps.showdownHoleCardsForPlayer(page);
-    if (currentCards.length !== 2) {
-      return { ok: false, message: "No showdown cards are available for this player." };
-    }
-    const nextCards = [...currentCards];
-    nextCards[token === "V_1" ? 0 : 1] = nextCard;
     const otherRevealedCards = Object.entries(deps.showdownHoleCardsByPlayer())
       .filter(([playerId]) => playerId !== page)
       .flatMap(([, cards]) => cards);
-    const handState = deps.handState();
-    const visibleCards = [
-      handState.h1,
-      handState.h2,
-      ...handState.flop,
-      handState.turn,
-      handState.river,
-      ...otherRevealedCards,
-      ...nextCards,
-    ].filter(Boolean);
-    if (hasDuplicateCards(visibleCards)) {
-      return { ok: false, message: "That card is already dealt somewhere else in this hand." };
-    }
-    return {
-      ok: true,
-      patch: {
-        showdownHoleCardsByPlayer: {
-          ...deps.showdownHoleCardsByPlayer(),
-          [page]: nextCards.sort(cardCompare),
-        },
-      },
-    };
+    return showdownVillainCardEditPatch({
+      page,
+      token,
+      nextCard,
+      currentCards,
+      otherRevealedCards,
+      handState: deps.handState(),
+      showdownHoleCardsByPlayer: deps.showdownHoleCardsByPlayer(),
+    });
   }
 
   function rebuildTimelineForCurrentHand({ viewedIndex = deps.viewedStreetIndex(), preserveStreetModels = false } = {}) {
@@ -349,41 +322,37 @@ export function createHandFlowController(deps) {
     button.textContent = "Dealing...";
 
     setTimeout(() => {
-      const latestHandState = deps.handState();
-      if (!latestHandState) {
-        dealPreflopRound();
-      } else if (latestHandState.round === "preflop") {
-        dealFlopRound();
-      } else if (latestHandState.round === "flop") {
-        dealTurnRound();
-      } else {
-        dealRiverRound();
+      const result = nextRoundDeal({
+        handState: deps.handState(),
+        handModel: deps.handModel(),
+        dealHoleCards: deps.dealHoleCards,
+        dealCardsFromDeck: deps.dealCardsFromDeck,
+        remainingDeckForKnownCards: deps.remainingDeckForKnownCards,
+        allDealtCardsForDeck: deps.allDealtCardsForDeck,
+      });
+      if (!result.ok) {
+        return;
       }
+      if (result.type === "preflop") {
+        finishPreflopDeal(result);
+        return;
+      }
+      finishStreetDeal(result.handModel);
     }, 20);
   }
 
-  function dealPreflopRound() {
-    const selectedHoleCards = HandModel.pendingHoleCards(deps.handModel()).filter(Boolean);
-    const [h1, h2] = selectedHoleCards.length
-      ? dealHoleCardsAroundPendingCards(selectedHoleCards)
-      : deps.dealHoleCards();
-    startPreflopFromHoleCards([h1, h2]);
-  }
-
-  function dealHoleCardsAroundPendingCards(selectedHoleCards) {
-    if (selectedHoleCards.length === 2) {
-      return selectedHoleCards.sort(cardCompare);
-    }
-    const [drawnCard] = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards(selectedHoleCards), 1);
-    return [...selectedHoleCards, drawnCard].sort(cardCompare);
-  }
-
   function startPreflopFromHoleCards(holeCards) {
-    const [h1, h2] = [...holeCards].sort(cardCompare);
-    const [v1, v2] = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards([h1, h2]), 2).sort(cardCompare);
+    finishPreflopDeal(buildPreflopDeal(holeCards, {
+      dealCardsFromDeck: deps.dealCardsFromDeck,
+      remainingDeckForKnownCards: deps.remainingDeckForKnownCards,
+    }));
+  }
+
+  function finishPreflopDeal(result) {
+    const [h1, h2] = result.heroHoleCards;
     transactions.dispatch(handTransaction("preflop-started", {
       patch: {
-        handModel: HandModel.startPreflopModel([h1, h2], [v1, v2]),
+        handModel: result.handModel,
         showdownHoleCardsByPlayer: {},
         actionMomentCache: new Map(),
         currentCurves: {},
@@ -398,22 +367,6 @@ export function createHandFlowController(deps) {
     deps.queuePreflopClassDataLoad(h1, h2);
 
     finishRoundDeal();
-  }
-
-  function dealTurnRound() {
-    const [turn] = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards(deps.allDealtCardsForDeck()), 1);
-    finishStreetDeal(HandModel.dealTurnModel(deps.handModel(), turn));
-  }
-
-  function dealRiverRound() {
-    const [river] = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards(deps.allDealtCardsForDeck()), 1);
-    finishStreetDeal(HandModel.dealRiverModel(deps.handModel(), river));
-  }
-
-  function dealFlopRound() {
-    const knownCards = deps.allDealtCardsForDeck();
-    const flop = deps.dealCardsFromDeck(deps.remainingDeckForKnownCards(knownCards), 3);
-    finishStreetDeal(HandModel.dealFlopModel(deps.handModel(), flop));
   }
 
   function finishStreetDeal(nextHandModel) {

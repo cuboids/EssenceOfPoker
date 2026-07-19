@@ -132,6 +132,10 @@ async function runBrowserSmoke(url) {
     const firstInstantAction = page.locator('[data-instant-action="call"], [data-instant-action="check"], [data-instant-action="fold"]').first();
     await firstInstantAction.click();
     await page.waitForFunction(() => document.querySelectorAll(".action-tag:not(.action-tag-forced)").length >= 1, null, { timeout: 10_000 });
+    await page.locator("#previous-street-button").click();
+    await page.waitForFunction(() => document.querySelectorAll(".action-tag:not(.action-tag-forced)").length === 0, null, { timeout: 10_000 });
+    await page.locator("#next-street-button").click();
+    await page.waitForFunction(() => document.querySelectorAll(".action-tag:not(.action-tag-forced)").length >= 1, null, { timeout: 10_000 });
 
     await page.locator("#new-round-button").click();
     await page.waitForFunction(() => document.querySelectorAll(".known-card").length >= 5, null, { timeout: 10_000 });

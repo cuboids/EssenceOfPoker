@@ -191,6 +191,7 @@ const playerActionController = createPlayerActionController({
   updateCurrentStreetSnapshot,
   updateLegend,
   updatePageTabs,
+  updateStreetNavButtons,
 });
 const assetBoard = createAssetBoardRenderer({
   documentRef: document,

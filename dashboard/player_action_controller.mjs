@@ -229,6 +229,7 @@ export function createPlayerActionController(deps) {
     deps.renderHoldingDisplay();
     deps.updatePageTabs();
     deps.updateLegend();
+    deps.updateStreetNavButtons();
     deps.renderCalibrationStatus();
     deps.renderAssets();
   }

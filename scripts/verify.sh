@@ -19,4 +19,5 @@ python3 -m unittest
 node scripts/run_js_tests_tier.mjs all
 node scripts/performance_budgets.mjs
 python3 -m essence_of_poker.build_dashboard --output dist/dashboard
+python3 -m essence_of_poker.release_manifest --dashboard-root dist/dashboard
 node scripts/browser_smoke.mjs --dashboard-root dist/dashboard

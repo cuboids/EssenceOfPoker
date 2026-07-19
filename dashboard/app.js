@@ -27,6 +27,7 @@ import {
   bindDashboardControls,
 } from "./controllers/dashboard_controls.mjs";
 import { createConfigPageController } from "./config_page_controller.mjs";
+import { createPlayerActionController } from "./player_action_controller.mjs";
 import { createRangeShowdownPanel } from "./range_showdown_panel.mjs";
 import {
   readEmpiricalSpot,
@@ -37,6 +38,7 @@ import {
 } from "./data_client.mjs";
 import { createHandEvaluator } from "./evaluation.mjs";
 import { createEquityController } from "./equity_controller.mjs";
+import { holdingDisplayModel } from "./renderers/holding_renderer.mjs";
 import {
   curveFromTrimmedCounts,
   curvesForKnownAssets as curvesForKnownAssetsKernel,
@@ -47,12 +49,15 @@ import {
   validatePriorWinShares,
 } from "./data_contracts.mjs";
 import {
+  assetsForPage,
   currentConcreteAssetCount as currentConcreteAssetCountForPortfolio,
   normalizedPortfolios as normalizedPortfoliosForConfig,
+  portfolioForPage,
   priorAggregateCurve as priorAggregateCurveForData,
   priorCurveForModel as priorCurveForPortfolioModel,
   priorCurvesByPage as priorCurvesByPortfolioPage,
   priorNaturalXMapsByPage,
+  villainPageKeysForConfig,
 } from "./portfolio_model.mjs";
 import {
   createSeededRng,
@@ -61,23 +66,9 @@ import {
   sessionSeed,
 } from "./session_rng.mjs";
 import {
-  actionHelpers,
-  actionPanelViewModel,
-  renderPlayerActionsHtml,
-} from "./action_panel.mjs";
-import {
   actionsForStreet,
-  appendLegalPlayerAction,
-  deletePlayerAction,
-  formatAmount,
   playerHasFoldedByStreet,
 } from "./player_actions.mjs";
-import {
-  actionCountBeforeStreet as visibleSnapshotActionCountBeforeStreet,
-  actionCountsForStreet as visibleSnapshotActionCountsForStreet,
-  actionCountThroughStreet as visibleSnapshotActionCountThroughStreet,
-  visibleActionsForStreet as visibleSnapshotActionsForStreet,
-} from "./visible_hand_snapshot.mjs";
 import { createPreflopClassStore } from "./stores/preflop_class_store.mjs";
 import {
   createEmpiricalSpotStore,
@@ -109,8 +100,6 @@ import {
   normalizeTableConfig,
   positionDisplayName,
   positionFromPageKey,
-  positionPageKey,
-  villainPositionsForConfig,
 } from "./table_positions.mjs";
 
 const ASSET_VERSION = window.ESSENCE_ASSET_VERSION || Date.now();
@@ -164,7 +153,6 @@ let hideInactiveAssets = appState.ui.hideInactiveAssets;
 let tableConfig = normalizeTableConfig(appState.ui.tableConfig);
 let calibrationContext = appState.ui.calibrationContext || { stakeBucket: "micro", yearBucket: "2009-2010" };
 let playerProfiles = appState.ui.playerProfiles || {};
-let pendingSizingActionType = null;
 const empiricalSpotStore = createEmpiricalSpotStore({
   readSpot: readEmpiricalSpot,
   readHealth,
@@ -179,6 +167,30 @@ const empiricalSpotStore = createEmpiricalSpotStore({
     renderHoldingDisplay();
     renderAssets();
   },
+});
+const playerActionController = createPlayerActionController({
+  activePage: () => activePage,
+  bumpCurveComputationToken: () => { curveComputationToken += 1; },
+  dashboardData: () => dashboardData,
+  documentRef: document,
+  empiricalEvidenceForAction,
+  handState: () => handState,
+  playerActions: () => playerActions,
+  priorCurvesByPage,
+  refreshVisibleHandSnapshot,
+  renderAssets,
+  renderCalibrationStatus,
+  renderHoldingDisplay,
+  renderPortfolioTabs,
+  resetWinShareState,
+  setActionMomentCache: (value) => { actionMomentCache = value; },
+  setCurrentCurves: (value) => { currentCurves = value; },
+  setPlayerActions: (value) => { playerActions = value; },
+  setViewedActionCount: (value) => { viewedActionCount = value; },
+  tableConfig: () => tableConfig,
+  updateCurrentStreetSnapshot,
+  updateLegend,
+  updatePageTabs,
 });
 const assetBoard = createAssetBoardRenderer({
   documentRef: document,
@@ -525,15 +537,15 @@ function priorCurveForModel(model, data = dashboardData, fallback = null) {
 }
 
 function currentPortfolio() {
-  return dashboardData.portfolios[activePage] || dashboardData.portfolios.hero;
+  return portfolioForPage(dashboardData.portfolios, activePage);
 }
 
 function currentAssets() {
-  const aggregates = currentPortfolio().aggregates || [];
-  if (activePage === "hero") {
-    return [...withHeroVillainAggregate(aggregates), ...currentPortfolio().assets];
-  }
-  return [...aggregates, ...currentPortfolio().assets];
+  return assetsForPage({
+    portfolios: dashboardData.portfolios,
+    activePage,
+    villainPageKeys: villainPageKeys(),
+  });
 }
 
 function currentConcreteAssetCount() {
@@ -544,47 +556,8 @@ function currentConcreteAssetCount() {
   });
 }
 
-function withHeroVillainAggregate(aggregates) {
-  const handAggregate = aggregates.find((aggregate) => aggregate.code === "AGG");
-  const otherAggregates = aggregates.filter((aggregate) => aggregate.code !== "AGG");
-  const villainAggregates = villainPageKeys()
-    .map((page) => {
-      const villainAggregate = dashboardData.portfolios[page]?.aggregates?.find((aggregate) => aggregate.code === "AGG");
-      if (!villainAggregate) {
-        return null;
-      }
-      return {
-        ...villainAggregate,
-        code: `${page}:AGG`,
-        sourcePage: page,
-        sourceCode: "AGG",
-        name: dashboardData.portfolios[page].aggregates.find((aggregate) => aggregate.code === "AGG")?.name || dashboardData.portfolios[page].name,
-        category: "AGGREGATE",
-        isAggregate: true,
-        isVillainMirror: true,
-      };
-    })
-    .filter(Boolean);
-  const rangeAggregate = {
-    ...(villainAggregates[0] || handAggregate),
-    code: "RANGE_AGG",
-    sourcePage: "range",
-    sourceCode: "AGG",
-    name: "Hero range",
-    category: "AGGREGATE",
-    isAggregate: true,
-    isRangeAggregate: true,
-  };
-  return [
-    ...(handAggregate ? [handAggregate] : []),
-    rangeAggregate,
-    ...villainAggregates,
-    ...otherAggregates,
-  ];
-}
-
 function villainPageKeys() {
-  return villainPositionsForConfig(tableConfig).map(positionPageKey);
+  return villainPageKeysForConfig(tableConfig);
 }
 
 function activeVillainPageKeys() {
@@ -911,158 +884,98 @@ function renderHoldingDisplay() {
   const display = document.getElementById("holding-display");
   const assetCount = currentConcreteAssetCount();
   document.getElementById("asset-count").textContent = assetCount;
-  if (activePage === "config") {
-    status.textContent = "Display configuration";
-    return;
+  const model = holdingDisplayModel({
+    activePage,
+    assetCount,
+    handState,
+    draftHoleCards: HandModel.pendingHoleCards(handModel),
+    cardEditError,
+    currentPortfolioName: currentPortfolio()?.name,
+    isOpponentPage: isOpponentPage(activePage),
+    villainShowdown,
+    villainCards: showdownHoleCardsForPlayer(activePage),
+    editableCardHtml,
+  });
+  status.textContent = model.statusText;
+  if (model.displayHtml != null) {
+    display.innerHTML = model.displayHtml;
   }
-  if (!handState) {
-    status.textContent = `${assetCount} five-card assets before any cards are dealt`;
-    const draftHoleCards = HandModel.pendingHoleCards(handModel);
-    display.innerHTML = `
-      <span class="holding-label">Holding</span>
-      ${editableCardHtml("H_1", draftHoleCards[0])}
-      ${editableCardHtml("H_2", draftHoleCards[1])}
-      ${cardEditError ? `<span class="card-edit-error">${escapeHtml(cardEditError)}</span>` : ""}
-    `;
-    return;
-  }
-
-  const statusByRound = {
-    preflop: `${assetCount} five-card assets after hero's holding cards are known`,
-    flop: `${assetCount} five-card assets after the flop is known`,
-    turn: `${assetCount} five-card assets after the turn is known`,
-    river: `${assetCount} five-card assets after the river is known`,
-  };
-  status.textContent = statusByRound[handState.round];
-
-  const flopHtml = handState.flop.length
-    ? `
-      <span class="holding-label">Flop</span>
-      ${handState.flop.map((card, index) => editableCardHtml(`F_${index + 1}`, card)).join("")}
-    `
-    : "";
-  const turnHtml = handState.turn
-    ? `
-      <span class="holding-label">Turn</span>
-      ${editableCardHtml("T", handState.turn)}
-    `
-    : "";
-  const riverHtml = handState.river
-    ? `
-      <span class="holding-label">River</span>
-      ${editableCardHtml("R", handState.river)}
-    `
-    : "";
-  const villainCards = showdownHoleCardsForPlayer(activePage);
-  const villainHtml = isOpponentPage(activePage) && villainShowdown && villainCards.length === 2
-    ? `
-      <span class="holding-label">${currentPortfolio().name}</span>
-      ${editableCardHtml("V_1", villainCards[0])}
-      ${editableCardHtml("V_2", villainCards[1])}
-    `
-    : "";
-
-  display.innerHTML = `
-    <span class="holding-label">Holding</span>
-    ${editableCardHtml("H_1", handState.h1)}
-    ${editableCardHtml("H_2", handState.h2)}
-    ${flopHtml}
-    ${turnHtml}
-    ${riverHtml}
-    ${villainHtml}
-    ${cardEditError ? `<span class="card-edit-error">${escapeHtml(cardEditError)}</span>` : ""}
-  `;
 }
 
 function renderPlayerActions() {
-  const container = document.getElementById("action-controls");
-  if (!container || activePage === "config" || !handState) {
-    if (container) {
-      container.innerHTML = "";
-    }
-    return;
-  }
-  container.innerHTML = renderPlayerActionsHtml(actionPanelView());
+  return playerActionController.renderPlayerActions();
 }
 
 function currentActionStreet() {
-  return handState?.round || null;
+  return playerActionController.currentActionStreet();
 }
 
 function actionPanelView() {
-  return actionPanelViewModel({
-    handState,
-    tableConfig,
-    playerActions,
-    visibleSnapshot: refreshVisibleHandSnapshot(),
-    currentStreet: currentActionStreet(),
-    pendingSizingActionType,
-    empiricalEvidenceForAction,
-  });
+  return playerActionController.actionPanelView();
 }
 
 function visiblePlayerActionsForCurrentStreet(street = currentActionStreet()) {
-  return visibleSnapshotActionsForStreet(refreshVisibleHandSnapshot(), street);
+  return playerActionController.visiblePlayerActionsForCurrentStreet(street);
 }
 
 function currentActionPrefix() {
-  return refreshVisibleHandSnapshot().currentActionPrefix;
+  return playerActionController.currentActionPrefix();
 }
 
 function currentViewedActionCount() {
-  return refreshVisibleHandSnapshot().viewedActionCount;
+  return playerActionController.currentViewedActionCount();
 }
 
 function currentActionActor(street = currentActionStreet()) {
-  return currentActionHelpers().currentActionActor(street);
+  return playerActionController.currentActionActor(street);
 }
 
 function actionPlayerOrder(street = currentActionStreet()) {
-  return currentActionHelpers().actionPlayerOrder(street);
+  return playerActionController.actionPlayerOrder(street);
 }
 
 function legalActionPlanForActor(playerId, street = currentActionStreet()) {
-  return currentActionHelpers().legalActionPlanForActor(playerId, street);
+  return playerActionController.legalActionPlanForActor(playerId, street);
 }
 
 function bettingStateForCurrentStreet(street = currentActionStreet()) {
-  return currentActionHelpers().bettingStateForCurrentStreet(street);
+  return playerActionController.bettingStateForCurrentStreet(street);
 }
 
 function playerStacksById() {
-  return currentActionHelpers().playerStacksById();
+  return playerActionController.playerStacksById();
 }
 
 function playerIdForPosition(position) {
-  return currentActionHelpers().playerIdForPosition(position);
+  return playerActionController.playerIdForPosition(position);
 }
 
 function playerIsFoldedBeforeStreet(playerId, street) {
-  return currentActionHelpers().playerIsFoldedBeforeStreet(playerId, street);
+  return playerActionController.playerIsFoldedBeforeStreet(playerId, street);
 }
 
 function previousActionStreet(street) {
-  return currentActionHelpers().previousActionStreet(street);
+  return playerActionController.previousActionStreet(street);
 }
 
 function visibleActionStreets(street) {
-  return currentActionHelpers().visibleActionStreets(street);
+  return playerActionController.visibleActionStreets(street);
 }
 
 function actionCountThroughStreet(street) {
-  return visibleSnapshotActionCountThroughStreet(playerActions, street);
+  return playerActionController.actionCountThroughStreet(street);
 }
 
 function actionCountBeforeStreet(street) {
-  return visibleSnapshotActionCountBeforeStreet(playerActions, street);
+  return playerActionController.actionCountBeforeStreet(street);
 }
 
 function actionCountsForStreet(street) {
-  return visibleSnapshotActionCountsForStreet(playerActions, street);
+  return playerActionController.actionCountsForStreet(street);
 }
 
 function lastRemovableActionId() {
-  return currentActionHelpers().lastRemovableActionId();
+  return playerActionController.lastRemovableActionId();
 }
 
 function empiricalEvidenceForAction(action) {
@@ -1070,127 +983,15 @@ function empiricalEvidenceForAction(action) {
 }
 
 function actionPlayerLabel(playerId) {
-  return currentActionHelpers().actionPlayerLabel(playerId);
-}
-
-function currentActionHelpers() {
-  return actionHelpers({
-    handState,
-    tableConfig,
-    playerActions,
-    visibleSnapshot: refreshVisibleHandSnapshot(),
-  });
+  return playerActionController.actionPlayerLabel(playerId);
 }
 
 function handlePlayerActionClick(event) {
-  const deleteButton = event.target.closest("[data-delete-action]");
-  if (deleteButton) {
-    deleteAction(deleteButton.dataset.deleteAction);
-    return;
-  }
-  const cancelSizing = event.target.closest("[data-cancel-sized-action]");
-  if (cancelSizing) {
-    pendingSizingActionType = null;
-    renderHoldingDisplay();
-    return;
-  }
-  const confirmSizing = event.target.closest("[data-confirm-sized-action]");
-  if (confirmSizing) {
-    const sizing = confirmSizing.closest("[data-sizing-action]");
-    const composer = confirmSizing.closest("[data-action-composer]");
-    applyCurrentPlayerAction({
-      type: sizing.dataset.sizingAction,
-      amount: Number(sizing.querySelector("[data-sizing-slider]")?.value),
-      composer,
-    });
-    return;
-  }
-  const instantButton = event.target.closest("[data-instant-action]");
-  if (!instantButton) {
-    return;
-  }
-  const type = instantButton.dataset.instantAction;
-  if (type === "bet" || type === "raise") {
-    pendingSizingActionType = type;
-    renderHoldingDisplay();
-    return;
-  }
-  applyCurrentPlayerAction({
-    type,
-    composer: instantButton.closest("[data-action-composer]"),
-  });
-}
-
-function applyCurrentPlayerAction({ type, amount = null, composer }) {
-  const player = composer?.dataset.currentActionPlayer;
-  const plan = player ? legalActionPlanForActor(player, currentActionStreet()) : null;
-  const action = {
-    player,
-    street: currentActionStreet(),
-    type,
-  };
-  if (type === "call") {
-    action.amount = plan?.callAmount || 0;
-  } else if (type === "all-in") {
-    action.amount = plan?.remaining || 0;
-  } else if (type === "bet" || type === "raise") {
-    action.amount = amount;
-  }
-  applyPlayerAction(action);
+  return playerActionController.handlePlayerActionClick(event);
 }
 
 function handleRaisePercentChange(event) {
-  if (!event.target.matches("[data-sizing-slider]")) {
-    return;
-  }
-  const output = event.target.closest("[data-sizing-action]")?.querySelector("[data-sizing-output]");
-  if (output) {
-    output.textContent = formatAmount(event.target.value);
-  }
-}
-
-function applyPlayerAction(action) {
-  try {
-    playerActions = appendLegalPlayerAction(playerActions, action, actionLegalityContext());
-  } catch {
-    return;
-  }
-  viewedActionCount = null;
-  pendingSizingActionType = null;
-  refreshAfterPlayerActionChange();
-}
-
-function actionLegalityContext() {
-  return {
-    orderForStreet: (street) => actionPlayerOrder(street).map((player) => player.id),
-    stacks: playerStacksById(),
-    smallBlindPlayer: playerIdForPosition("SB"),
-    bigBlindPlayer: playerIdForPosition("BB"),
-  };
-}
-
-function deleteAction(actionId) {
-  if (actionId !== lastRemovableActionId()) {
-    return;
-  }
-  playerActions = deletePlayerAction(playerActions, actionId);
-  viewedActionCount = null;
-  pendingSizingActionType = null;
-  refreshAfterPlayerActionChange();
-}
-
-function refreshAfterPlayerActionChange() {
-  curveComputationToken += 1;
-  actionMomentCache = new Map();
-  currentCurves = handState ? {} : priorCurvesByPage(dashboardData);
-  resetWinShareState();
-  updateCurrentStreetSnapshot();
-  renderPortfolioTabs();
-  renderHoldingDisplay();
-  updatePageTabs();
-  updateLegend();
-  renderCalibrationStatus();
-  renderAssets();
+  return playerActionController.handleRaisePercentChange(event);
 }
 
 function handleCardEditClick(event) {

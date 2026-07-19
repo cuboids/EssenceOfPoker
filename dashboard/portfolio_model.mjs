@@ -151,6 +151,69 @@ export function currentConcreteAssetCount({ activePage, dashboardData, currentPo
   return concreteAssetCount(currentPortfolio);
 }
 
+export function villainPageKeysForConfig(tableConfig) {
+  return villainPositionsForConfig(tableConfig).map(positionPageKey);
+}
+
+export function portfolioForPage(portfolios, page) {
+  return portfolios[page] || portfolios.hero;
+}
+
+export function assetsForPage({ portfolios, activePage, villainPageKeys }) {
+  const portfolio = portfolioForPage(portfolios, activePage);
+  const aggregates = portfolio.aggregates || [];
+  if (activePage !== "hero") {
+    return [...aggregates, ...portfolio.assets];
+  }
+  return [
+    ...heroPageAggregates({
+      portfolios,
+      heroAggregates: aggregates,
+      villainPageKeys,
+    }),
+    ...portfolio.assets,
+  ];
+}
+
+export function heroPageAggregates({ portfolios, heroAggregates, villainPageKeys }) {
+  const handAggregate = heroAggregates.find((aggregate) => aggregate.code === "AGG");
+  const otherAggregates = heroAggregates.filter((aggregate) => aggregate.code !== "AGG");
+  const villainAggregates = villainPageKeys
+    .map((page) => {
+      const villainAggregate = portfolios[page]?.aggregates?.find((aggregate) => aggregate.code === "AGG");
+      if (!villainAggregate) {
+        return null;
+      }
+      return {
+        ...villainAggregate,
+        code: `${page}:AGG`,
+        sourcePage: page,
+        sourceCode: "AGG",
+        name: portfolios[page].aggregates.find((aggregate) => aggregate.code === "AGG")?.name || portfolios[page].name,
+        category: "AGGREGATE",
+        isAggregate: true,
+        isVillainMirror: true,
+      };
+    })
+    .filter(Boolean);
+  const rangeAggregate = {
+    ...(villainAggregates[0] || handAggregate),
+    code: "RANGE_AGG",
+    sourcePage: "range",
+    sourceCode: "AGG",
+    name: "Hero range",
+    category: "AGGREGATE",
+    isAggregate: true,
+    isRangeAggregate: true,
+  };
+  return [
+    ...(handAggregate ? [handAggregate] : []),
+    rangeAggregate,
+    ...villainAggregates,
+    ...otherAggregates,
+  ];
+}
+
 function fallbackCurve(data) {
   return {
     curve: data.curve,

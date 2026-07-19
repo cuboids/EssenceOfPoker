@@ -22,11 +22,17 @@ import { readApiCache } from "../dashboard/cache_client.mjs";
 import { createComputationWorker } from "../dashboard/computation_worker_client.mjs";
 import { curvesForKnownAssets as curvesForKnownAssetsKernel } from "../dashboard/curve_distributions.mjs";
 import { createHandEvaluator, evaluateKey } from "../dashboard/evaluation.mjs";
+import { createPlayerActionController } from "../dashboard/player_action_controller.mjs";
 import {
   aggregateGradationsForSevenCards,
   combinationsOfIndexes,
   curveFromCounts,
 } from "../dashboard/portfolio_curves.mjs";
+import {
+  assetsForPage,
+  normalizedPortfolios,
+  villainPageKeysForConfig,
+} from "../dashboard/portfolio_model.mjs";
 import {
   bestSevenCardGradation,
   computeMultiwayAggregateEquities,
@@ -44,6 +50,7 @@ import {
 import { winShareSignal } from "../dashboard/win_signal.mjs";
 import { chartSvg } from "../dashboard/renderers/chart_renderer.mjs";
 import { renderConfigPageHtml } from "../dashboard/renderers/config_renderer.mjs";
+import { holdingDisplayModel } from "../dashboard/renderers/holding_renderer.mjs";
 import { renderRangeMatrixHtml } from "../dashboard/renderers/range_matrix_renderer.mjs";
 import { renderShowdownSectionHtml } from "../dashboard/renderers/showdown_renderer.mjs";
 import { cardHtml, compactTokenHtml, escapeHtml, formatCombos, formatPercent } from "../dashboard/ui.mjs";
@@ -103,6 +110,19 @@ test("portfolio curve helpers compute curves and aggregate minimums without the 
   );
   assert.equal(gradations.AGG, 1);
   assert.equal(gradations.AGG_BOTH, 1);
+});
+
+test("portfolio page model composes hero mirror aggregates outside the app shell", () => {
+  const tableConfig = { playerCount: 3, heroPosition: "BTN", positions: ["BTN", "SB", "BB"] };
+  const portfolios = normalizedPortfolios(data, tableConfig);
+  const pageKeys = villainPageKeysForConfig(tableConfig);
+  const heroAssets = assetsForPage({ portfolios, activePage: "hero", villainPageKeys: pageKeys });
+
+  assert.deepEqual(pageKeys, ["villain:SB", "villain:BB"]);
+  assert.deepEqual(
+    heroAssets.filter((asset) => asset.category === "AGGREGATE").map((asset) => asset.code).slice(0, 4),
+    ["AGG", "RANGE_AGG", "villain:SB:AGG", "villain:BB:AGG"],
+  );
 });
 
 test("known asset curves can hydrate preflop primary classes without enumeration", () => {
@@ -442,6 +462,16 @@ test("renderer helpers produce dashboard HTML without the DOM", () => {
   });
   assert.match(chartHtml, /sparkline/);
   assert.match(chartHtml, /polyline/);
+
+  const holding = holdingDisplayModel({
+    activePage: "hero",
+    assetCount: 21,
+    handState: null,
+    draftHoleCards: [card(1, 1), null],
+    editableCardHtml: (token, value) => `${token}:${value?.rank || ""}`,
+  });
+  assert.match(holding.statusText, /before any cards/);
+  assert.match(holding.displayHtml, /H_1:1/);
 });
 
 test("controller support modules are importable without the DOM", () => {
@@ -450,6 +480,7 @@ test("controller support modules are importable without the DOM", () => {
   assert.equal(concreteAssetIsActive({ curveData: null, ceilingGradation: null, hasHandState: false }), true);
   assert.equal(typeof readApiCache, "function");
   assert.equal(createComputationWorker("test"), null);
+  assert.equal(typeof createPlayerActionController, "function");
 });
 
 function readJsonOrGzip(relativePath) {
